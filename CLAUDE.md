@@ -81,7 +81,6 @@ Flags: `-fast` (1 LLM call), `-expand` (query expansion), `-v` (verbose)
 - Do git command 
   - create a new branch 
   - add all changes and commit them 
-  - create a PR 
-  - merge the PR 
-  - delete merged branch 
+  - git push
+  - create a remote PR
   - switch back to main
