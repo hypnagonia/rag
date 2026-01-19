@@ -4,13 +4,7 @@ A CLI tool for indexing local files using BM25 lexical retrieval, ranking result
 
 ## Example: Querying Game of Thrones (5 books, ~2M tokens)
 
-First, index the books directory (which contains a `rag.yaml` config):
-
-```bash
-$ rag index ./books
-```
-
-Then query:
+---
 
 ```bash
 $ rag query -q "How did Ned Stark die" -index ./books -expand
@@ -68,9 +62,27 @@ go build -o rag ./cmd/rag
 
 ## Quick Start
 
+First, create a `rag.yaml` config in your content directory:
+
+```yaml
+# books/rag.yaml
+index:
+  includes:
+    - "**/*.txt"
+  chunk_tokens: 512
+  stemming: true
+
+retrieve:
+  top_k: 20
+  mmr_lambda: 0.7
+
+pack:
+  token_budget: 4000
+```
+
 ```bash
 # Index a directory
-rag index /path/to/project
+rag index /path/to/books
 
 # Search for relevant code
 rag query -q "authentication handler"
