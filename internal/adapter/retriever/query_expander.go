@@ -37,27 +37,25 @@ Output ONLY the alternative queries, one per line. Do not include explanations o
 
 	response, err := e.llm.GenerateWithSystem(systemPrompt, userPrompt)
 	if err != nil {
-		// Fall back to original query on error
+
 		return []string{query}, nil
 	}
 
-	// Parse response into individual queries
-	queries := []string{query} // Always include original
+	queries := []string{query}
 	lines := strings.Split(response, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		// Skip empty lines and lines that look like explanations
+
 		if line == "" || strings.HasPrefix(line, "-") || strings.Contains(line, ":") {
 			continue
 		}
-		// Remove common prefixes like "1.", "2.", etc.
+
 		line = strings.TrimLeft(line, "0123456789. ")
 		if line != "" && line != query {
 			queries = append(queries, line)
 		}
 	}
 
-	// Limit to 4 total queries
 	if len(queries) > 4 {
 		queries = queries[:4]
 	}
@@ -70,7 +68,6 @@ Output ONLY the alternative queries, one per line. Do not include explanations o
 func (e *QueryExpander) ExpandWithKeywords(query string) []string {
 	queries := []string{query}
 
-	// Common programming term expansions
 	expansions := map[string][]string{
 		"auth":       {"authentication", "login", "authorize"},
 		"config":     {"configuration", "settings", "options"},
@@ -105,7 +102,6 @@ func (e *QueryExpander) ExpandWithKeywords(query string) []string {
 		}
 	}
 
-	// Limit expansions
 	if len(queries) > 5 {
 		queries = queries[:5]
 	}

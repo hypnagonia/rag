@@ -117,7 +117,6 @@ func (r *CohereReranker) Rerank(query string, documents []string) ([]port.Rerank
 		}
 	}
 
-	// Sort by score descending
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Score > results[j].Score
 	})
@@ -140,7 +139,7 @@ type RerankedRetriever struct {
 // NewRerankedRetriever creates a new reranked retriever.
 func NewRerankedRetriever(retriever port.Retriever, reranker port.Reranker, topK int) *RerankedRetriever {
 	if topK <= 0 {
-		topK = 50 // Default: rerank top 50
+		topK = 50
 	}
 	return &RerankedRetriever{
 		retriever: retriever,
@@ -151,7 +150,7 @@ func NewRerankedRetriever(retriever port.Retriever, reranker port.Reranker, topK
 
 // Search retrieves candidates and reranks them.
 func (r *RerankedRetriever) Search(query string, k int) ([]domain.ScoredChunk, error) {
-	// Get more candidates than needed for reranking
+
 	candidates, err := r.retriever.Search(query, r.topK)
 	if err != nil {
 		return nil, err
@@ -161,7 +160,6 @@ func (r *RerankedRetriever) Search(query string, k int) ([]domain.ScoredChunk, e
 		return nil, nil
 	}
 
-	// If no reranker, just return top-k candidates
 	if r.reranker == nil {
 		if len(candidates) > k {
 			candidates = candidates[:k]
@@ -169,23 +167,20 @@ func (r *RerankedRetriever) Search(query string, k int) ([]domain.ScoredChunk, e
 		return candidates, nil
 	}
 
-	// Extract texts for reranking
 	texts := make([]string, len(candidates))
 	for i, c := range candidates {
 		texts[i] = c.Chunk.Text
 	}
 
-	// Rerank
 	reranked, err := r.reranker.Rerank(query, texts)
 	if err != nil {
-		// Fall back to original order on reranking error
+
 		if len(candidates) > k {
 			candidates = candidates[:k]
 		}
 		return candidates, nil
 	}
 
-	// Build reranked results
 	results := make([]domain.ScoredChunk, 0, min(k, len(reranked)))
 	for i := 0; i < min(k, len(reranked)); i++ {
 		idx := reranked[i].Index
@@ -212,7 +207,7 @@ func NewSimpleReranker() *SimpleReranker {
 func (r *SimpleReranker) Rerank(query string, documents []string) ([]port.RerankedResult, error) {
 	queryTerms := tokenizeSimple(query)
 	if len(queryTerms) == 0 {
-		// No reranking possible, return original order
+
 		results := make([]port.RerankedResult, len(documents))
 		for i := range documents {
 			results[i] = port.RerankedResult{Index: i, Score: 1.0 - float64(i)*0.01}
@@ -229,7 +224,6 @@ func (r *SimpleReranker) Rerank(query string, documents []string) ([]port.Rerank
 		}
 	}
 
-	// Sort by score descending
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Score > results[j].Score
 	})

@@ -71,8 +71,7 @@ func NewOllamaEmbedder(model, baseURL string) (*OpenAIEmbedder, error) {
 		baseURL = "http://localhost:11434/v1"
 	}
 
-	// Set dimension based on model
-	dimension := 768 // Default for nomic-embed-text
+	dimension := 768
 	switch model {
 	case "nomic-embed-text":
 		dimension = 768
@@ -83,12 +82,12 @@ func NewOllamaEmbedder(model, baseURL string) (*OpenAIEmbedder, error) {
 	}
 
 	return &OpenAIEmbedder{
-		apiKey:    "ollama", // Ollama doesn't require an API key
+		apiKey:    "ollama",
 		model:     model,
 		baseURL:   baseURL,
 		dimension: dimension,
 		client: &http.Client{
-			Timeout: 120 * time.Second, // Longer timeout for local models
+			Timeout: 120 * time.Second,
 		},
 	}, nil
 }
@@ -100,8 +99,7 @@ func NewOpenAICompatibleEmbedder(apiKeyEnv, model, baseURL string) (*OpenAIEmbed
 		return nil, fmt.Errorf("API key not found in environment variable: %s", apiKeyEnv)
 	}
 
-	// Set dimension based on model
-	dimension := 1536 // Default
+	dimension := 1536
 	switch model {
 	case "text-embedding-3-small":
 		dimension = 1536
@@ -109,7 +107,7 @@ func NewOpenAICompatibleEmbedder(apiKeyEnv, model, baseURL string) (*OpenAIEmbed
 		dimension = 3072
 	case "text-embedding-ada-002":
 		dimension = 1536
-	// Jina models
+
 	case "jina-embeddings-v3":
 		dimension = 1024
 	case "jina-embeddings-v4":
@@ -185,7 +183,6 @@ func (e *OpenAIEmbedder) embedBatch(texts []string) ([][]float32, error) {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	// Debug: print response if it's an error
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 	}
@@ -203,7 +200,6 @@ func (e *OpenAIEmbedder) embedBatch(texts []string) ([][]float32, error) {
 		return nil, fmt.Errorf("API error: %s", embResp.Error.Message)
 	}
 
-	// Sort by index to ensure correct order
 	embeddings := make([][]float32, len(texts))
 	for _, data := range embResp.Data {
 		if data.Index < len(embeddings) {
@@ -239,7 +235,7 @@ func (e *MockEmbedder) Embed(texts []string) ([][]float32, error) {
 	embeddings := make([][]float32, len(texts))
 	for i := range texts {
 		embeddings[i] = make([]float32, e.dimension)
-		// Create a simple deterministic embedding based on text hash
+
 		for j, r := range texts[i] {
 			if j < e.dimension {
 				embeddings[i][j] = float32(r) / 1000.0

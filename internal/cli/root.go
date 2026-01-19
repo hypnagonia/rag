@@ -29,7 +29,6 @@ Example usage:
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		var err error
 
-		// Determine root directory
 		if rootDir == "" {
 			rootDir, err = os.Getwd()
 			if err != nil {
@@ -37,7 +36,6 @@ Example usage:
 			}
 		}
 
-		// Load configuration
 		if cfgFile != "" {
 			cfg, err = config.Load(cfgFile)
 		} else {

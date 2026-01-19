@@ -9,7 +9,7 @@ import (
 )
 
 func TestLineChunkerBasic(t *testing.T) {
-	tokenizer := analyzer.NewTokenizer(false) // No stemming for easier testing
+	tokenizer := analyzer.NewTokenizer(false)
 	chunker := NewLineChunker(50, 10, tokenizer)
 
 	doc := domain.Document{
@@ -39,7 +39,6 @@ func helper() {
 		t.Fatal("expected at least one chunk")
 	}
 
-	// Verify chunk properties
 	for _, chunk := range chunks {
 		if chunk.ID == "" {
 			t.Error("chunk has empty ID")
@@ -61,7 +60,7 @@ func helper() {
 
 func TestLineChunkerBoundaries(t *testing.T) {
 	tokenizer := analyzer.NewTokenizer(false)
-	// Small chunk size to force multiple chunks
+
 	chunker := NewLineChunker(10, 2, tokenizer)
 
 	doc := domain.Document{
@@ -69,7 +68,6 @@ func TestLineChunkerBoundaries(t *testing.T) {
 		Path: "/test/file.go",
 	}
 
-	// Create content with clear line boundaries
 	lines := []string{
 		"Line one",
 		"Line two",
@@ -87,19 +85,17 @@ func TestLineChunkerBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Verify chunks cover all content
 	allText := ""
 	for _, chunk := range chunks {
 		if !strings.HasPrefix(allText, "") {
 			allText += "\n"
 		}
-		// Account for overlap - don't double-count
+
 		if !strings.Contains(allText, chunk.Text) {
 			allText += chunk.Text
 		}
 	}
 
-	// Each original line should appear in at least one chunk
 	for _, line := range lines {
 		found := false
 		for _, chunk := range chunks {
@@ -116,7 +112,7 @@ func TestLineChunkerBoundaries(t *testing.T) {
 
 func TestLineChunkerOverlap(t *testing.T) {
 	tokenizer := analyzer.NewTokenizer(false)
-	// Very small chunks with overlap
+
 	chunker := NewLineChunker(5, 2, tokenizer)
 
 	doc := domain.Document{
@@ -131,17 +127,14 @@ func TestLineChunkerOverlap(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// With overlap, adjacent chunks should share some lines
 	if len(chunks) < 2 {
 		t.Skip("need at least 2 chunks to test overlap")
 	}
 
-	// Check that there's some content overlap between adjacent chunks
 	for i := 0; i < len(chunks)-1; i++ {
 		current := chunks[i]
 		next := chunks[i+1]
 
-		// Next chunk should start before or at where current ends (overlap)
 		if next.StartLine > current.EndLine+1 {
 			t.Errorf("no overlap between chunk %d (ends at %d) and chunk %d (starts at %d)",
 				i, current.EndLine, i+1, next.StartLine)
@@ -163,7 +156,6 @@ func TestLineChunkerEmptyContent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Empty content should produce minimal or no chunks
 	if len(chunks) > 1 {
 		t.Errorf("expected 0 or 1 chunks for empty content, got %d", len(chunks))
 	}
@@ -200,7 +192,7 @@ func TestLineChunkerSingleLine(t *testing.T) {
 
 func TestLineChunkerLongLine(t *testing.T) {
 	tokenizer := analyzer.NewTokenizer(false)
-	// Very small token limit
+
 	chunker := NewLineChunker(5, 0, tokenizer)
 
 	doc := domain.Document{
@@ -208,7 +200,6 @@ func TestLineChunkerLongLine(t *testing.T) {
 		Path: "/test/long.go",
 	}
 
-	// Single line that exceeds token limit
 	content := "This is a very long line with many many words that will exceed the token limit"
 
 	chunks, err := chunker.Chunk(doc, content)
@@ -216,12 +207,10 @@ func TestLineChunkerLongLine(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Should still produce at least one chunk (graceful handling)
 	if len(chunks) == 0 {
 		t.Error("expected at least one chunk even for oversized line")
 	}
 
-	// The chunk should contain the line even if it exceeds the limit
 	if chunks[0].Text != content {
 		t.Error("chunk should contain the full oversized line")
 	}
@@ -243,7 +232,6 @@ func TestChunkIDUniqueness(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// All chunk IDs should be unique
 	ids := make(map[string]bool)
 	for _, chunk := range chunks {
 		if ids[chunk.ID] {

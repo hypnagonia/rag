@@ -47,7 +47,7 @@ func init() {
 }
 
 func runPrompt(cmd *cobra.Command, args []string) error {
-	// Validate flags
+
 	if !runpromptRuntime && !runpromptBuilder {
 		return fmt.Errorf("must specify either --runtime or --builder")
 	}
@@ -55,7 +55,6 @@ func runPrompt(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot specify both --runtime and --builder")
 	}
 
-	// Load context file
 	ctxData, err := os.ReadFile(runpromptCtx)
 	if err != nil {
 		return fmt.Errorf("failed to read context file: %w", err)
@@ -66,18 +65,15 @@ func runPrompt(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse context file: %w", err)
 	}
 
-	// Prepare template data
 	data := PromptData{
 		Query:    packed.Query,
 		Snippets: packed.Snippets,
 	}
 
-	// Override query if provided
 	if runpromptQuery != "" {
 		data.Query = runpromptQuery
 	}
 
-	// Select and render template
 	var templateName string
 	if runpromptBuilder {
 		templateName = "templates/builder_prompt.txt"
@@ -87,7 +83,7 @@ func runPrompt(cmd *cobra.Command, args []string) error {
 
 	tmplContent, err := promptTemplates.ReadFile(templateName)
 	if err != nil {
-		// If embedded templates not found, try assets folder
+
 		return fmt.Errorf("template not found: %w", err)
 	}
 
@@ -105,13 +101,11 @@ func runPrompt(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// PromptData holds data for prompt templates.
 type PromptData struct {
 	Query    string
 	Snippets []domain.Snippet
 }
 
-// templateFuncs returns custom template functions.
 func templateFuncs() template.FuncMap {
 	return template.FuncMap{
 		"join": strings.Join,

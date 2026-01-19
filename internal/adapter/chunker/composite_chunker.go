@@ -11,19 +11,18 @@ import (
 
 // CompositeChunker routes to language-specific parsers or falls back to line-based chunking.
 type CompositeChunker struct {
-	parsers     map[string]LanguageParser
-	fallback    *LineChunker
-	tokenizer   *analyzer.Tokenizer
-	maxTokens   int
-	overlap     int
-	useAST      bool // Can be disabled via config
+	parsers   map[string]LanguageParser
+	fallback  *LineChunker
+	tokenizer *analyzer.Tokenizer
+	maxTokens int
+	overlap   int
+	useAST    bool // Can be disabled via config
 }
 
 // NewCompositeChunker creates a new composite chunker.
 func NewCompositeChunker(maxTokens, overlap int, tokenizer *analyzer.Tokenizer, useAST bool) *CompositeChunker {
 	parsers := make(map[string]LanguageParser)
 
-	// Register language parsers
 	goParser := NewGoParser()
 	parsers[goParser.Language()] = goParser
 
@@ -39,7 +38,7 @@ func NewCompositeChunker(maxTokens, overlap int, tokenizer *analyzer.Tokenizer, 
 
 // Chunk splits a document's content into chunks.
 func (c *CompositeChunker) Chunk(doc domain.Document, content string) ([]domain.Chunk, error) {
-	// If AST chunking is disabled or no parser available, use fallback
+
 	if !c.useAST {
 		return c.fallback.Chunk(doc, content)
 	}
@@ -49,10 +48,9 @@ func (c *CompositeChunker) Chunk(doc domain.Document, content string) ([]domain.
 		return c.fallback.Chunk(doc, content)
 	}
 
-	// Try AST parsing
 	units, err := parser.Parse(content)
 	if err != nil {
-		// Parse failed, fall back to line-based chunking
+
 		return c.fallback.Chunk(doc, content)
 	}
 
@@ -60,7 +58,6 @@ func (c *CompositeChunker) Chunk(doc domain.Document, content string) ([]domain.
 		return c.fallback.Chunk(doc, content)
 	}
 
-	// Convert code units to chunks
 	return c.unitsToChunks(doc, units, content)
 }
 
@@ -69,15 +66,15 @@ func (c *CompositeChunker) unitsToChunks(doc domain.Document, units []CodeUnit, 
 	var chunks []domain.Chunk
 
 	for _, unit := range units {
-		// Check if unit fits in a single chunk
+
 		tokens := c.tokenizer.CountTokens(unit.Content)
 
 		if tokens <= c.maxTokens {
-			// Unit fits in a single chunk
+
 			chunk := c.createChunk(doc, unit)
 			chunks = append(chunks, chunk)
 		} else {
-			// Unit is too large, split it
+
 			subChunks := c.splitLargeUnit(doc, unit)
 			chunks = append(chunks, subChunks...)
 		}
@@ -90,11 +87,9 @@ func (c *CompositeChunker) unitsToChunks(doc domain.Document, units []CodeUnit, 
 func (c *CompositeChunker) createChunk(doc domain.Document, unit CodeUnit) domain.Chunk {
 	tokens := c.tokenizer.Tokenize(unit.Content)
 
-	// Include metadata in the chunk for better retrieval
-	// Prepend signature/doc to help with matching
 	text := unit.Content
 	if unit.DocString != "" && len(unit.DocString) < 500 {
-		// Doc string is often valuable context
+
 		text = "// " + unit.DocString + "\n" + text
 	}
 
@@ -112,24 +107,21 @@ func (c *CompositeChunker) createChunk(doc domain.Document, unit CodeUnit) domai
 func (c *CompositeChunker) splitLargeUnit(doc domain.Document, unit CodeUnit) []domain.Chunk {
 	var chunks []domain.Chunk
 
-	// Strategy: Keep the signature/header in each chunk for context
 	header := ""
 
 	if unit.Signature != "" {
 		header = unit.Signature
-		// Add opening brace if it's a function/method/struct/interface
+
 		if unit.Type == "function" || unit.Type == "method" || unit.Type == "struct" || unit.Type == "interface" {
 			header += " {"
 		}
 	}
 
-	// Use line-based splitting for the content
 	lines := splitIntoLines(unit.Content)
 
-	// Skip the first few lines that contain the signature (we'll add it back)
 	startIdx := 0
 	if unit.Signature != "" {
-		// Find where the body starts (after the opening brace)
+
 		for i, line := range lines {
 			if containsBrace(line) {
 				startIdx = i + 1
@@ -139,7 +131,7 @@ func (c *CompositeChunker) splitLargeUnit(doc domain.Document, unit CodeUnit) []
 	}
 
 	if startIdx >= len(lines) {
-		// Signature-only, no body to split
+
 		return []domain.Chunk{c.createChunk(doc, unit)}
 	}
 
@@ -148,14 +140,13 @@ func (c *CompositeChunker) splitLargeUnit(doc domain.Document, unit CodeUnit) []
 	chunkNum := 0
 
 	for currentStart < len(bodyLines) {
-		// Calculate how much space we have for body content
+
 		headerTokens := c.tokenizer.CountTokens(header)
-		availableTokens := c.maxTokens - headerTokens - 10 // Buffer for closing brace etc.
+		availableTokens := c.maxTokens - headerTokens - 10
 		if availableTokens < 50 {
-			availableTokens = 50 // Minimum body size
+			availableTokens = 50
 		}
 
-		// Find end of this chunk
 		currentEnd := currentStart
 		currentTokens := 0
 
@@ -168,7 +159,6 @@ func (c *CompositeChunker) splitLargeUnit(doc domain.Document, unit CodeUnit) []
 			currentEnd++
 		}
 
-		// Ensure progress
 		if currentEnd == currentStart {
 			currentEnd = currentStart + 1
 		}
@@ -181,7 +171,7 @@ func (c *CompositeChunker) splitLargeUnit(doc domain.Document, unit CodeUnit) []
 		for i := currentStart; i < currentEnd && i < len(bodyLines); i++ {
 			chunkContent += bodyLines[i] + "\n"
 		}
-		// Add continuation marker if not the last chunk
+
 		if currentEnd < len(bodyLines) {
 			chunkContent += "// ... continued"
 		} else if unit.Type == "function" || unit.Type == "method" {
@@ -190,7 +180,6 @@ func (c *CompositeChunker) splitLargeUnit(doc domain.Document, unit CodeUnit) []
 
 		tokens := c.tokenizer.Tokenize(chunkContent)
 
-		// Calculate line numbers
 		actualStartLine := unit.StartLine + startIdx + currentStart
 		actualEndLine := unit.StartLine + startIdx + currentEnd - 1
 		if actualEndLine >= unit.EndLine {
@@ -207,7 +196,6 @@ func (c *CompositeChunker) splitLargeUnit(doc domain.Document, unit CodeUnit) []
 		}
 		chunks = append(chunks, chunk)
 
-		// Move to next chunk with overlap
 		overlapLines := c.calculateOverlapForBody(bodyLines, currentStart, currentEnd)
 		nextStart := currentEnd - overlapLines
 		if nextStart <= currentStart {

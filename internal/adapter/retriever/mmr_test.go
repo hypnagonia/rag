@@ -9,7 +9,6 @@ import (
 func TestMMRReranking(t *testing.T) {
 	reranker := NewMMRReranker(0.7, 0.9)
 
-	// Create candidates with varying similarity
 	candidates := []domain.ScoredChunk{
 		{
 			Chunk: domain.Chunk{
@@ -21,21 +20,21 @@ func TestMMRReranking(t *testing.T) {
 		{
 			Chunk: domain.Chunk{
 				ID:     "c2",
-				Tokens: []string{"auth", "login", "user", "session"}, // Very similar to c1
+				Tokens: []string{"auth", "login", "user", "session"},
 			},
 			Score: 0.9,
 		},
 		{
 			Chunk: domain.Chunk{
 				ID:     "c3",
-				Tokens: []string{"database", "query", "sql", "connection"}, // Different
+				Tokens: []string{"database", "query", "sql", "connection"},
 			},
 			Score: 0.8,
 		},
 		{
 			Chunk: domain.Chunk{
 				ID:     "c4",
-				Tokens: []string{"auth", "jwt", "token", "oauth"}, // Somewhat similar to c1
+				Tokens: []string{"auth", "jwt", "token", "oauth"},
 			},
 			Score: 0.7,
 		},
@@ -47,12 +46,10 @@ func TestMMRReranking(t *testing.T) {
 		t.Fatal("expected results from MMR reranking")
 	}
 
-	// The first result should be the highest scoring
 	if results[0].Chunk.ID != "c1" {
 		t.Errorf("expected c1 as first result, got %s", results[0].Chunk.ID)
 	}
 
-	// c3 (different topic) should be prioritized over c2 (too similar to c1)
 	hasC3BeforeC2 := false
 	c3Idx, c2Idx := -1, -1
 	for i, r := range results {
@@ -74,7 +71,7 @@ func TestMMRReranking(t *testing.T) {
 }
 
 func TestMMRDeduplication(t *testing.T) {
-	// Low dedup threshold should filter out similar items
+
 	reranker := NewMMRReranker(0.5, 0.3)
 
 	candidates := []domain.ScoredChunk{
@@ -88,7 +85,7 @@ func TestMMRDeduplication(t *testing.T) {
 		{
 			Chunk: domain.Chunk{
 				ID:     "c2",
-				Tokens: []string{"a", "b", "c"}, // Identical tokens
+				Tokens: []string{"a", "b", "c"},
 			},
 			Score: 0.9,
 		},
@@ -96,7 +93,6 @@ func TestMMRDeduplication(t *testing.T) {
 
 	results := reranker.Rerank(candidates, 2)
 
-	// Should only get 1 result due to deduplication
 	if len(results) != 1 {
 		t.Errorf("expected 1 result after dedup, got %d", len(results))
 	}
@@ -143,7 +139,7 @@ func TestJaccardSimilarity(t *testing.T) {
 			name:     "half overlap",
 			a:        []string{"a", "b"},
 			b:        []string{"b", "c"},
-			expected: 1.0 / 3.0, // intersection=1, union=3
+			expected: 1.0 / 3.0,
 		},
 		{
 			name:     "empty a",

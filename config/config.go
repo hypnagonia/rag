@@ -54,10 +54,10 @@ type RetrieveConfig struct {
 
 // PackConfig holds context packing configuration.
 type PackConfig struct {
-	TokenBudget  int    `yaml:"token_budget"`
+	TokenBudget  int     `yaml:"token_budget"`
 	RecencyBoost float64 `yaml:"recency_boost"`
-	Summarize    bool   `yaml:"summarize"`
-	Output       string `yaml:"output"`
+	Summarize    bool    `yaml:"summarize"`
+	Output       string  `yaml:"output"`
 }
 
 // LoggingConfig holds logging configuration.
@@ -84,7 +84,7 @@ func DefaultConfig() *Config {
 			MMRLambda:       0.7,
 			DedupJaccard:    0.8,
 			PathBoostWeight: 0.3,
-			HybridEnabled:   false, // Disabled by default (requires API key)
+			HybridEnabled:   false,
 			RRFK:            60,
 			BM25Weight:      0.5,
 		},
@@ -115,7 +115,7 @@ func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return cfg, nil // Return defaults if no config file
+			return cfg, nil
 		}
 		return nil, err
 	}
@@ -129,19 +129,17 @@ func Load(path string) (*Config, error) {
 
 // LoadFromDir loads configuration from a directory (looks for rag.yaml).
 func LoadFromDir(dir string) (*Config, error) {
-	// Try rag.yaml in the directory
+
 	path := filepath.Join(dir, "rag.yaml")
 	if _, err := os.Stat(path); err == nil {
 		return Load(path)
 	}
 
-	// Try .rag/config.yaml
 	path = filepath.Join(dir, ".rag", "config.yaml")
 	if _, err := os.Stat(path); err == nil {
 		return Load(path)
 	}
 
-	// Return defaults
 	return DefaultConfig(), nil
 }
 

@@ -37,7 +37,7 @@ type storedVector struct {
 
 // NewBoltVectorStore creates a new BoltDB-backed vector store.
 func NewBoltVectorStore(db *bbolt.DB, dimension int) (*BoltVectorStore, error) {
-	// Create bucket
+
 	err := db.Update(func(tx *bbolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(bucketVectors)
 		return err
@@ -52,7 +52,6 @@ func NewBoltVectorStore(db *bbolt.DB, dimension int) (*BoltVectorStore, error) {
 		vectors:   make(map[string]vectorEntry),
 	}
 
-	// Load existing vectors into memory
 	if err := store.loadVectors(); err != nil {
 		return nil, fmt.Errorf("failed to load vectors: %w", err)
 	}
@@ -71,7 +70,7 @@ func (s *BoltVectorStore) loadVectors() error {
 		return b.ForEach(func(k, v []byte) error {
 			var stored storedVector
 			if err := json.Unmarshal(v, &stored); err != nil {
-				return nil // Skip corrupted entries
+				return nil
 			}
 			s.vectors[string(k)] = vectorEntry{
 				vector:   stored.Vector,
@@ -111,7 +110,6 @@ func (s *BoltVectorStore) Upsert(items []port.VectorItem) error {
 				return err
 			}
 
-			// Update in-memory cache
 			s.vectors[item.ID] = vectorEntry{
 				vector:   item.Vector,
 				metadata: item.Metadata,
@@ -152,12 +150,10 @@ func (s *BoltVectorStore) Search(query []float32, k int) ([]port.VectorResult, e
 		})
 	}
 
-	// Sort by score descending
 	sort.Slice(scores, func(i, j int) bool {
 		return scores[i].score > scores[j].score
 	})
 
-	// Return top-k
 	if k > len(scores) {
 		k = len(scores)
 	}

@@ -46,7 +46,7 @@ func (w *Walker) Walk(root string) ([]FileInfo, error) {
 		}
 
 		if info.IsDir() {
-			// Check if directory should be excluded
+
 			relPath, err := filepath.Rel(root, path)
 			if err != nil {
 				return err

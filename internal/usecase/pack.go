@@ -60,7 +60,6 @@ func (u *PackUseCase) Pack(query string, chunks []domain.ScoredChunk, budget int
 		}
 	}
 
-	// Calculate max age for normalization (use 30 days as reference window)
 	maxAgeDays := 30.0
 
 	ranked := make([]rankedChunk, 0, len(chunks))
@@ -70,7 +69,6 @@ func (u *PackUseCase) Pack(query string, chunks []domain.ScoredChunk, budget int
 			tokens = 1
 		}
 
-		// Calculate recency factor (1.0 for most recent, decaying for older files)
 		recencyFactor := 1.0
 		if u.recencyBoost > 0 && !maxModTime.IsZero() {
 			if modTime, exists := docModTimes[c.Chunk.DocID]; exists {
@@ -78,17 +76,16 @@ func (u *PackUseCase) Pack(query string, chunks []domain.ScoredChunk, budget int
 				if ageDays < 0 {
 					ageDays = 0
 				}
-				// Normalize age to [0, 1] range (capped at maxAgeDays)
+
 				normalizedAge := ageDays / maxAgeDays
 				if normalizedAge > 1 {
 					normalizedAge = 1
 				}
-				// Recency factor: 1 for newest, (1 - recencyBoost) for oldest
+
 				recencyFactor = 1.0 + u.recencyBoost*(1.0-normalizedAge) - u.recencyBoost*normalizedAge
 			}
 		}
 
-		// Utility = relevance score * recency factor / token cost
 		utility := (c.Score * recencyFactor) / float64(tokens)
 		ranked = append(ranked, rankedChunk{
 			chunk:   c,
@@ -97,32 +94,27 @@ func (u *PackUseCase) Pack(query string, chunks []domain.ScoredChunk, budget int
 		})
 	}
 
-	// Sort by utility (best value first)
 	sort.Slice(ranked, func(i, j int) bool {
 		return ranked[i].utility > ranked[j].utility
 	})
 
-	// Greedy selection until budget is exhausted
 	selected := make([]domain.ScoredChunk, 0)
 	usedTokens := 0
 
 	for _, rc := range ranked {
 		if usedTokens+rc.tokens > budget {
-			continue // Skip if it would exceed budget
+			continue
 		}
 		selected = append(selected, rc.chunk)
 		usedTokens += rc.tokens
 	}
 
-	// Try to merge adjacent chunks from same file
 	merged := u.mergeAdjacentChunks(selected)
 
-	// Sort merged by score descending so most relevant snippets come first
 	sort.Slice(merged, func(i, j int) bool {
 		return merged[i].Score > merged[j].Score
 	})
 
-	// Build snippets
 	snippets := make([]domain.Snippet, 0, len(merged))
 	for _, sc := range merged {
 		doc, err := u.store.GetDoc(sc.Chunk.DocID)
@@ -138,7 +130,6 @@ func (u *PackUseCase) Pack(query string, chunks []domain.ScoredChunk, budget int
 		snippets = append(snippets, snippet)
 	}
 
-	// Recalculate used tokens after merging
 	usedTokens = 0
 	for _, s := range snippets {
 		usedTokens += u.tokenizer.CountTokens(s.Text)
@@ -158,7 +149,6 @@ func (u *PackUseCase) mergeAdjacentChunks(chunks []domain.ScoredChunk) []domain.
 		return chunks
 	}
 
-	// Group by document
 	byDoc := make(map[string][]domain.ScoredChunk)
 	for _, c := range chunks {
 		byDoc[c.Chunk.DocID] = append(byDoc[c.Chunk.DocID], c)
@@ -167,23 +157,21 @@ func (u *PackUseCase) mergeAdjacentChunks(chunks []domain.ScoredChunk) []domain.
 	result := make([]domain.ScoredChunk, 0, len(chunks))
 
 	for _, docChunks := range byDoc {
-		// Sort by start line
+
 		sort.Slice(docChunks, func(i, j int) bool {
 			return docChunks[i].Chunk.StartLine < docChunks[j].Chunk.StartLine
 		})
 
-		// Merge adjacent chunks
 		i := 0
 		for i < len(docChunks) {
 			merged := docChunks[i]
 			j := i + 1
 
-			// Try to merge with following chunks
 			for j < len(docChunks) {
 				next := docChunks[j]
-				// Check if adjacent (or overlapping)
+
 				if next.Chunk.StartLine <= merged.Chunk.EndLine+1 {
-					// Merge
+
 					merged.Chunk.EndLine = maxInt(merged.Chunk.EndLine, next.Chunk.EndLine)
 					merged.Chunk.Text = merged.Chunk.Text + "\n" + next.Chunk.Text
 					merged.Chunk.Tokens = append(merged.Chunk.Tokens, next.Chunk.Tokens...)

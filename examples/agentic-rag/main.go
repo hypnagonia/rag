@@ -1,26 +1,3 @@
-// Agentic RAG Example
-//
-// A general-purpose agentic RAG (Retrieval-Augmented Generation) tool that works
-// with any indexed content: books, articles, documentation, code, or any text.
-//
-// Features:
-//   - Hybrid search: BM25 keyword + vector semantic search (with Ollama embeddings)
-//   - Iterative context gathering with LLM evaluation
-//   - Token-aware context packing
-//
-// Usage:
-//   # Index with embeddings first:
-//   rag index ./content --config rag.yaml  # rag.yaml enables ollama embeddings
-//
-//   # Then query:
-//   export DEEPSEEK_API_KEY=your-key
-//   go run main.go -q "what is the main theme" -index ./content
-//
-// Supported LLM providers:
-//   - DeepSeek: -provider deepseek -model deepseek-chat
-//   - OpenAI:   -provider openai -model gpt-4o-mini
-//   - Local:    -provider local -base-url http://localhost:11434/v1
-
 package main
 
 import (
@@ -86,10 +63,10 @@ type LLMClient struct {
 
 // LLMStats tracks LLM usage statistics
 type LLMStats struct {
-	TotalCalls       int
-	TotalInputChars  int
-	TotalOutputChars int
-	TotalInputTokens int  // estimated
+	TotalCalls        int
+	TotalInputChars   int
+	TotalOutputChars  int
+	TotalInputTokens  int // estimated
 	TotalOutputTokens int // estimated
 }
 
@@ -155,7 +132,7 @@ func NewLLMClient(provider, model, baseURL, apiKey string) (*LLMClient, error) {
 
 // Chat sends a chat completion request
 func (c *LLMClient) Chat(messages []ChatMessage) (string, error) {
-	// Calculate input size
+
 	inputChars := 0
 	for _, msg := range messages {
 		inputChars += len(msg.Content)
@@ -209,11 +186,10 @@ func (c *LLMClient) Chat(messages []ChatMessage) (string, error) {
 
 	output := chatResp.Choices[0].Message.Content
 
-	// Update stats
 	c.stats.TotalCalls++
 	c.stats.TotalInputChars += inputChars
 	c.stats.TotalOutputChars += len(output)
-	// Rough token estimate: ~4 chars per token for English
+
 	c.stats.TotalInputTokens += inputChars / 4
 	c.stats.TotalOutputTokens += len(output) / 4
 
@@ -248,7 +224,7 @@ type AgenticRAG struct {
 	expandedLines map[string]string // expanded line contexts keyed by "file:line"
 	maxIters      int
 	topK          int
-	tokenBudget   int  // token budget for context packing
+	tokenBudget   int // token budget for context packing
 	verbose       bool
 	expandQuery   bool // whether to use LLM for query expansion
 	fastMode      bool // skip iterative evaluation, just search and answer
@@ -294,10 +270,10 @@ type SearchResult struct {
 
 // ContentStats holds statistics about the indexed content
 type ContentStats struct {
-	TotalDocs       int
-	TotalChunks     int
-	TotalChars      int
-	TotalTokensEst  int
+	TotalDocs      int
+	TotalChunks    int
+	TotalChars     int
+	TotalTokensEst int
 }
 
 // Run executes the agentic RAG workflow
@@ -339,12 +315,10 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 		expandedQueries = []string{originalQuery}
 	}
 
-	// Fast mode: just search and answer, no iteration
 	if a.fastMode {
 		return a.runFastMode(originalQuery, expandedQueries)
 	}
 
-	// Collect all results
 	allChunks := make(map[string]domain.ScoredChunk)
 
 	for iter := 0; iter < a.maxIters; iter++ {
@@ -354,7 +328,6 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 			fmt.Printf("%s\n", strings.Repeat("═", 70))
 		}
 
-		// Step 2: Search with all queries
 		if a.verbose {
 			fmt.Printf("\nExecuting RAG searches:\n")
 		} else {
@@ -395,10 +368,8 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 			fmt.Printf(" found %d chunks\n", len(allChunks))
 		}
 
-		// Build context from current results
 		context := a.buildContext(allChunks, originalQuery)
 
-		// Step 3: Ask LLM if context is sufficient
 		if a.verbose {
 			fmt.Printf("\n[LLM] Evaluating if context is sufficient...\n")
 		} else {
@@ -441,7 +412,6 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 			}
 			chunks := sortedChunks(allChunks)
 
-			// Generate final answer
 			answer, err := a.generateAnswer(originalQuery, context)
 			if err != nil {
 				if a.verbose {
@@ -463,7 +433,6 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 			}, nil
 		}
 
-		// Step 4a: Handle context expansion requests first
 		if len(decision.ExpandContext) > 0 {
 			if a.verbose {
 				fmt.Printf("\nLLM requested context expansion:\n")
@@ -474,7 +443,6 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 				fmt.Printf("Expanding context (%d items)...", len(decision.ExpandContext))
 			}
 
-			// Fetch the requested context items
 			expandedChunks := a.expandContextItems(decision.ExpandContext)
 			newCount := 0
 			for _, c := range expandedChunks {
@@ -490,13 +458,11 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 				fmt.Printf(" +%d chunks\n", newCount)
 			}
 
-			// If we got new chunks, re-evaluate without consuming a query iteration
 			if newCount > 0 {
 				continue
 			}
 		}
 
-		// Step 4b: Handle line expansion requests (read more lines around a passage)
 		if len(decision.ExpandLines) > 0 {
 			if a.verbose {
 				fmt.Printf("\nLLM requested line expansion:\n")
@@ -515,13 +481,11 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 				fmt.Printf(" +%d expanded\n", newCount)
 			}
 
-			// If we got new expanded content, re-evaluate
 			if newCount > 0 {
 				continue
 			}
 		}
 
-		// Step 4c: Need more context - generate new queries
 		if len(decision.SuggestedQueries) > 0 {
 			if a.verbose {
 				fmt.Printf("\nLLM suggested new queries:\n")
@@ -531,7 +495,7 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 			}
 			expandedQueries = decision.SuggestedQueries
 		} else if len(decision.ExpandContext) == 0 && len(decision.ExpandLines) == 0 {
-			// Only stop if we had no expansion or queries
+
 			if a.verbose {
 				fmt.Printf("\nNo new queries or expansion suggested. Stopping iterations.\n")
 			}
@@ -545,11 +509,9 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 		fmt.Printf("Generating answer...")
 	}
 
-	// Return what we have after max iterations
 	chunks := sortedChunks(allChunks)
 	context := a.buildContext(allChunks, originalQuery)
 
-	// Generate final answer anyway
 	answer, err := a.generateAnswer(originalQuery, context)
 	if err != nil {
 		if a.verbose {
@@ -573,7 +535,7 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 
 // generateAnswer asks LLM to answer the question based on retrieved context
 func (a *AgenticRAG) generateAnswer(query, context string) (string, error) {
-	truncatedContext := truncateContext(context, 8000) // give LLM more context for answer
+	truncatedContext := truncateContext(context, 8000)
 	userPrompt := fmt.Sprintf("Q: %s\n\nContext:\n%s", query, truncatedContext)
 
 	if a.verbose {
@@ -599,7 +561,6 @@ func (a *AgenticRAG) runFastMode(originalQuery string, queries []string) (*Searc
 		fmt.Printf("Searching...")
 	}
 
-	// Search with all queries
 	allChunks := make(map[string]domain.ScoredChunk)
 	for _, q := range queries {
 		chunks, err := a.retrieveUC.Retrieve(q, a.topK)
@@ -622,9 +583,8 @@ func (a *AgenticRAG) runFastMode(originalQuery string, queries []string) (*Searc
 		fmt.Printf("Generating answer...")
 	}
 
-	// Build context and generate answer
 	chunks := sortedChunks(allChunks)
-	// Limit to top chunks for fast mode
+
 	if len(chunks) > a.topK {
 		chunks = chunks[:a.topK]
 	}
@@ -691,12 +651,11 @@ func (a *AgenticRAG) doExpandQuery(query string) ([]string, error) {
 		a.printResponseBox("LLM RESPONSE", response)
 	}
 
-	// Parse response into queries
 	queries := []string{}
 	for _, line := range strings.Split(response, "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" && !strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "*") {
-			// Remove numbering if present
+
 			line = strings.TrimLeft(line, "0123456789. ")
 			if line != "" {
 				queries = append(queries, line)
@@ -713,16 +672,16 @@ func (a *AgenticRAG) doExpandQuery(query string) ([]string, error) {
 
 // ContextDecision represents the LLM's evaluation of context sufficiency
 type ContextDecision struct {
-	Sufficient        bool
-	Reason            string
-	SuggestedQueries  []string
-	ExpandContext     []string // requests to expand context (e.g., "fetch definition of funcX", "show file Y")
-	ExpandLines       []string // requests to show more lines around a passage (e.g., "file.txt:100")
+	Sufficient       bool
+	Reason           string
+	SuggestedQueries []string
+	ExpandContext    []string // requests to expand context (e.g., "fetch definition of funcX", "show file Y")
+	ExpandLines      []string // requests to show more lines around a passage (e.g., "file.txt:100")
 }
 
 // evaluateContext asks LLM if the current context is sufficient
 func (a *AgenticRAG) evaluateContext(query, context string) (*ContextDecision, error) {
-	// Send truncated context - use 6000 chars to see more packed snippets
+
 	truncatedContext := truncateContext(context, 6000)
 	userPrompt := fmt.Sprintf("Q: %s\n\nContext:\n%s\n\nSufficient?", query, truncatedContext)
 
@@ -739,8 +698,6 @@ func (a *AgenticRAG) evaluateContext(query, context string) (*ContextDecision, e
 		a.printResponseBox("LLM RESPONSE", response)
 	}
 
-	// Parse JSON response
-	// Find JSON in response (might have markdown code blocks)
 	jsonStr := extractJSON(response)
 
 	var decision struct {
@@ -752,7 +709,7 @@ func (a *AgenticRAG) evaluateContext(query, context string) (*ContextDecision, e
 	}
 
 	if err := json.Unmarshal([]byte(jsonStr), &decision); err != nil {
-		// Try to infer from text
+
 		lower := strings.ToLower(response)
 		sufficient := strings.Contains(lower, "sufficient") && !strings.Contains(lower, "not sufficient") && !strings.Contains(lower, "insufficient")
 		return &ContextDecision{
@@ -780,7 +737,6 @@ func (a *AgenticRAG) expandContextItems(requests []string) []domain.ScoredChunk 
 			fmt.Printf("\n   Expanding context: %s\n", req)
 		}
 
-		// Search for the requested item
 		chunks, err := a.retrieveUC.Retrieve(req, a.topK/2+1)
 		if err != nil {
 			if a.verbose {
@@ -809,12 +765,12 @@ func (a *AgenticRAG) expandContextItems(requests []string) []domain.ScoredChunk 
 // Format: "filename:line" e.g. "3.txt:17650"
 func (a *AgenticRAG) expandLinesAround(requests []string, extraLines int) int {
 	if extraLines <= 0 {
-		extraLines = 50 // default: 50 lines before and after
+		extraLines = 50
 	}
 
 	added := 0
 	for _, req := range requests {
-		// Parse "filename:line" format
+
 		parts := strings.SplitN(req, ":", 2)
 		if len(parts) != 2 {
 			if a.verbose {
@@ -832,10 +788,9 @@ func (a *AgenticRAG) expandLinesAround(requests []string, extraLines int) int {
 			continue
 		}
 
-		// Find the full path to the file
 		fullPath := filepath.Join(a.indexPath, filename)
 		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-			// Try to find file by searching docs
+
 			docs, _ := a.store.ListDocs()
 			for _, doc := range docs {
 				if strings.HasSuffix(doc.Path, filename) || strings.Contains(doc.Path, filename) {
@@ -849,7 +804,6 @@ func (a *AgenticRAG) expandLinesAround(requests []string, extraLines int) int {
 			fmt.Printf("   Expanding lines around %s:%d (±%d lines)\n", filename, centerLine, extraLines)
 		}
 
-		// Read the expanded context
 		text, startLine, endLine, err := readLinesAround(fullPath, centerLine, extraLines)
 		if err != nil {
 			if a.verbose {
@@ -858,7 +812,6 @@ func (a *AgenticRAG) expandLinesAround(requests []string, extraLines int) int {
 			continue
 		}
 
-		// Store in expandedLines map
 		key := fmt.Sprintf("%s:%d", filename, centerLine)
 		a.expandedLines[key] = fmt.Sprintf("=== %s:L%d-%d (expanded) ===\n%s", filename, startLine, endLine, text)
 		added++
@@ -903,7 +856,6 @@ func readLinesAround(path string, centerLine, extraLines int) (string, int, int,
 		return "", 0, 0, err
 	}
 
-	// Adjust endLine if file was shorter
 	actualEnd := startLine + len(lines) - 1
 	if actualEnd < endLine {
 		endLine = actualEnd
@@ -914,7 +866,7 @@ func readLinesAround(path string, centerLine, extraLines int) (string, int, int,
 
 // buildContext creates a text context from chunks using the pack feature
 func (a *AgenticRAG) buildContext(chunks map[string]domain.ScoredChunk, query string) string {
-	// Convert map to slice
+
 	chunkSlice := make([]domain.ScoredChunk, 0, len(chunks))
 	for _, c := range chunks {
 		chunkSlice = append(chunkSlice, c)
@@ -924,7 +876,7 @@ func (a *AgenticRAG) buildContext(chunks map[string]domain.ScoredChunk, query st
 
 // buildContextFromSlice creates context from a slice of chunks using pack
 func (a *AgenticRAG) buildContextFromSlice(chunks []domain.ScoredChunk, query string) string {
-	// Use pack to select best chunks within token budget
+
 	packed, err := a.packUC.Pack(query, chunks, a.tokenBudget)
 	if err != nil {
 		// Fallback to simple concatenation
@@ -935,7 +887,7 @@ func (a *AgenticRAG) buildContextFromSlice(chunks []domain.ScoredChunk, query st
 			sb.WriteString(c.Chunk.Text)
 			sb.WriteString("\n\n")
 		}
-		// Add expanded lines
+
 		for _, expanded := range a.expandedLines {
 			sb.WriteString(expanded)
 			sb.WriteString("\n\n")
@@ -951,7 +903,6 @@ func (a *AgenticRAG) buildContextFromSlice(chunks []domain.ScoredChunk, query st
 		sb.WriteString("\n\n")
 	}
 
-	// Add expanded lines (from LLM requests)
 	if len(a.expandedLines) > 0 {
 		for _, expanded := range a.expandedLines {
 			sb.WriteString(expanded)
@@ -973,14 +924,12 @@ func (a *AgenticRAG) buildContextFromSlice(chunks []domain.ScoredChunk, query st
 	return sb.String()
 }
 
-// Helper functions
-
 func sortedChunks(m map[string]domain.ScoredChunk) []domain.ScoredChunk {
 	chunks := make([]domain.ScoredChunk, 0, len(m))
 	for _, c := range m {
 		chunks = append(chunks, c)
 	}
-	// Sort by score descending
+
 	for i := 0; i < len(chunks); i++ {
 		for j := i + 1; j < len(chunks); j++ {
 			if chunks[j].Score > chunks[i].Score {
@@ -1026,14 +975,13 @@ func getContentStats(st *store.BoltStore) ContentStats {
 		}
 	}
 
-	// Estimate tokens: ~4 chars per token (conservative)
 	stats.TotalTokensEst = stats.TotalChars / 4
 
 	return stats
 }
 
 func extractJSON(s string) string {
-	// Try to find JSON in the response
+
 	start := strings.Index(s, "{")
 	end := strings.LastIndex(s, "}")
 	if start >= 0 && end > start {
@@ -1068,7 +1016,6 @@ func setupHybridRetrieval(st *store.BoltStore, cfg *config.Config) (port.Embedde
 		return nil, nil, err
 	}
 
-	// Check if vector store has any vectors
 	count, err := vectorStore.Count()
 	if err != nil {
 		return nil, nil, err
@@ -1081,7 +1028,7 @@ func setupHybridRetrieval(st *store.BoltStore, cfg *config.Config) (port.Embedde
 }
 
 func main() {
-	// Command line flags
+
 	query := flag.String("q", "", "Search query (required)")
 	indexPath := flag.String("index", ".", "Path to indexed directory")
 	provider := flag.String("provider", "deepseek", "LLM provider: deepseek, openai, local")
@@ -1110,14 +1057,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize LLM client
 	llm, err := NewLLMClient(*provider, *model, *baseURL, *apiKey)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing LLM: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Load config and open store
 	cfg, err := config.LoadFromDir(*indexPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
@@ -1137,7 +1082,6 @@ func main() {
 	}
 	defer st.Close()
 
-	// Create retriever (with hybrid search if embeddings are available)
 	tokenizer := analyzer.NewTokenizer(cfg.Index.Stemming)
 	bm25 := retriever.NewBM25Retriever(st, tokenizer, cfg.Index.K1, cfg.Index.B, cfg.Retrieve.PathBoostWeight)
 	mmr := retriever.NewMMRReranker(cfg.Retrieve.MMRLambda, cfg.Retrieve.DedupJaccard)
@@ -1163,10 +1107,8 @@ func main() {
 
 	retrieveUC := usecase.NewRetrieveUseCase(searchRetriever, mmr, cfg.Retrieve.MinScoreThreshold)
 
-	// Create pack use case for token-aware context selection
 	packUC := usecase.NewPackUseCase(st, tokenizer, cfg.Pack.RecencyBoost)
 
-	// Create and run agentic RAG
 	agent := NewAgenticRAG(llm, retrieveUC, packUC, st, AgenticRAGOptions{
 		IndexPath:   *indexPath,
 		MaxIters:    *maxIters,
@@ -1177,7 +1119,6 @@ func main() {
 		FastMode:    *fast,
 	})
 
-	// Determine search mode
 	searchMode := "BM25"
 	if cfg.Retrieve.HybridEnabled && cfg.Embedding.Enabled {
 		if _, ok := searchRetriever.(*retriever.HybridRetriever); ok {
@@ -1185,7 +1126,6 @@ func main() {
 		}
 	}
 
-	// Print startup info
 	mode := "iterative"
 	if *fast {
 		mode = "fast (1 LLM call)"
@@ -1202,7 +1142,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Print results only in verbose mode
 	if *verbose {
 		fmt.Printf("\n" + strings.Repeat("=", 70) + "\n")
 		fmt.Printf("📋 RESULTS for: %s\n", result.Query)
@@ -1227,18 +1166,15 @@ func main() {
 				c := result.Chunks[i]
 				doc, _ := st.GetDoc(c.Chunk.DocID)
 
-				// Print header
 				fmt.Printf("┌─── [%d] %s ───\n", i+1, doc.Path)
 				fmt.Printf("│ Lines: %d-%d | Score: %.3f\n", c.Chunk.StartLine, c.Chunk.EndLine, c.Score)
 				fmt.Printf("├" + strings.Repeat("─", 69) + "\n")
 
-				// Print content
 				text := c.Chunk.Text
 				if !*fullOutput && len(text) > 1000 {
 					text = text[:1000] + "\n... (use -full to see complete content)"
 				}
 
-				// Add line prefix for readability
 				lines := strings.Split(text, "\n")
 				for _, line := range lines {
 					fmt.Printf("│ %s\n", line)
@@ -1252,7 +1188,6 @@ func main() {
 		}
 	}
 
-	// Print the answer
 	fmt.Printf("\n%s\n", strings.Repeat("═", 70))
 	fmt.Printf("ANSWER\n")
 	fmt.Printf("%s\n", strings.Repeat("═", 70))
@@ -1265,10 +1200,9 @@ func main() {
 	}
 	fmt.Println(result.Answer)
 
-	// Always show token comparison summary
 	contentStats := getContentStats(st)
 	llmStats := llm.GetStats()
-	fullContextTokens := contentStats.TotalTokensEst + 100 // +100 for query/system prompt
+	fullContextTokens := contentStats.TotalTokensEst + 100
 	tokensUsed := llmStats.TotalInputTokens + llmStats.TotalOutputTokens
 
 	fmt.Printf("\n%s\n", strings.Repeat("─", 70))
@@ -1280,7 +1214,6 @@ func main() {
 	}
 	fmt.Printf("%s\n", strings.Repeat("─", 70))
 
-	// Show detailed statistics only in verbose mode
 	if *verbose {
 		fmt.Printf("\n%s\n", strings.Repeat("─", 70))
 		fmt.Printf("📊 LLM USAGE STATISTICS (detailed)\n")
@@ -1292,7 +1225,6 @@ func main() {
 		fmt.Printf("   Est. output tokens:     ~%s\n", formatNumber(llmStats.TotalOutputTokens))
 		fmt.Printf("   Est. total tokens:      ~%s\n", formatNumber(tokensUsed))
 
-		// Print comparison with full content
 		fmt.Printf("\n%s\n", strings.Repeat("─", 70))
 		fmt.Printf("📈 RAG EFFICIENCY COMPARISON (detailed)\n")
 		fmt.Printf("%s\n", strings.Repeat("─", 70))
@@ -1310,7 +1242,6 @@ func main() {
 		fmt.Printf("      Would need to send:  %s chars\n", formatNumber(contentStats.TotalChars))
 		fmt.Printf("      Est. tokens needed:  ~%s\n", formatNumber(fullContextTokens))
 
-		// Calculate savings
 		if fullContextTokens > 0 {
 			savings := float64(fullContextTokens-llmStats.TotalInputTokens) / float64(fullContextTokens) * 100
 			reduction := float64(fullContextTokens) / float64(max(llmStats.TotalInputTokens, 1))
@@ -1318,15 +1249,12 @@ func main() {
 			fmt.Printf("      Token reduction:     %.1fx less tokens\n", reduction)
 			fmt.Printf("      Percentage saved:    %.1f%%\n", savings)
 
-			// Cost estimation (using typical pricing)
-			// GPT-4o-mini: $0.15/1M input, $0.60/1M output
-			// DeepSeek: ~$0.14/1M input, $0.28/1M output
 			ragCostInput := float64(llmStats.TotalInputTokens) / 1000000 * 0.15
 			ragCostOutput := float64(llmStats.TotalOutputTokens) / 1000000 * 0.60
 			ragCost := ragCostInput + ragCostOutput
 
 			fullCostInput := float64(fullContextTokens) / 1000000 * 0.15
-			fullCostOutput := float64(llmStats.TotalOutputTokens) / 1000000 * 0.60 // same output
+			fullCostOutput := float64(llmStats.TotalOutputTokens) / 1000000 * 0.60
 			fullCost := fullCostInput + fullCostOutput
 
 			fmt.Printf("\n      Est. cost with RAG:  $%.6f\n", ragCost)
@@ -1337,7 +1265,6 @@ func main() {
 		}
 	}
 
-	// Show methodology only in verbose mode
 	if *verbose {
 		fmt.Printf("\n%s\n", strings.Repeat("─", 70))
 		fmt.Printf("📝 TOKEN ESTIMATION METHODOLOGY\n")

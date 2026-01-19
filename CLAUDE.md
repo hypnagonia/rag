@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Guidelines
+- Don not commit clause as projects coauthor
+- Never add comments to generated code!
+
 ## Build & Test Commands
 
 ```bash

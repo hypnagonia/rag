@@ -33,7 +33,6 @@ func (p *GoParser) Parse(content string) ([]CodeUnit, error) {
 	lines := strings.Split(content, "\n")
 	var units []CodeUnit
 
-	// Extract package-level declarations
 	for _, decl := range f.Decls {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
@@ -41,7 +40,7 @@ func (p *GoParser) Parse(content string) ([]CodeUnit, error) {
 			units = append(units, unit)
 
 		case *ast.GenDecl:
-			// Handle type, const, var, import declarations
+
 			genUnits := p.extractGenDecl(fset, d, lines)
 			units = append(units, genUnits...)
 		}
@@ -80,22 +79,18 @@ func (p *GoParser) extractFunction(fset *token.FileSet, fn *ast.FuncDecl, lines 
 		}
 	}
 
-	// Extract content
 	content := extractLines(lines, startPos.Line, endPos.Line)
 
-	// Determine type (function or method)
 	unitType := "function"
 	if fn.Recv != nil {
 		unitType = "method"
 	}
 
-	// Extract doc comment
 	docString := ""
 	if fn.Doc != nil {
 		docString = fn.Doc.Text()
 	}
 
-	// Extract function calls
 	calls := p.extractCalls(fn.Body)
 
 	return CodeUnit{
@@ -132,10 +127,9 @@ func (p *GoParser) extractGenDecl(fset *token.FileSet, decl *ast.GenDecl, lines 
 				unitType = "interface"
 			}
 
-			// For grouped declarations, use the spec bounds; otherwise use decl bounds
 			start := specStart.Line
 			end := specEnd.Line
-			if decl.Lparen == 0 { // Not a grouped declaration
+			if decl.Lparen == 0 {
 				start = startPos.Line
 				end = endPos.Line
 			}
@@ -158,7 +152,6 @@ func (p *GoParser) extractGenDecl(fset *token.FileSet, decl *ast.GenDecl, lines 
 				DocString: docString,
 			}
 
-			// Extract methods for struct/interface
 			if st, ok := ts.Type.(*ast.StructType); ok {
 				unit.Children = p.extractStructFields(st)
 			}
@@ -170,7 +163,7 @@ func (p *GoParser) extractGenDecl(fset *token.FileSet, decl *ast.GenDecl, lines 
 		}
 
 	case token.CONST, token.VAR:
-		// Group const/var declarations together
+
 		content := extractLines(lines, startPos.Line, endPos.Line)
 		unitType := "const"
 		if decl.Tok == token.VAR {
@@ -200,7 +193,7 @@ func (p *GoParser) extractGenDecl(fset *token.FileSet, decl *ast.GenDecl, lines 
 		})
 
 	case token.IMPORT:
-		// Extract imports
+
 		content := extractLines(lines, startPos.Line, endPos.Line)
 		var imports []string
 		for _, spec := range decl.Specs {
@@ -285,7 +278,7 @@ func (p *GoParser) extractStructFields(st *ast.StructType) []CodeUnit {
 			names = append(names, name.Name)
 		}
 		if len(names) == 0 {
-			// Embedded field
+
 			names = []string{typeStr}
 		}
 
@@ -307,7 +300,7 @@ func (p *GoParser) extractInterfaceMethods(it *ast.InterfaceType) []CodeUnit {
 
 	for _, method := range it.Methods.List {
 		if len(method.Names) == 0 {
-			// Embedded interface
+
 			children = append(children, CodeUnit{
 				Type: "embedded",
 				Name: p.formatExpr(method.Type),
@@ -362,7 +355,7 @@ func (p *GoParser) extractCallName(expr ast.Expr) string {
 	case *ast.Ident:
 		return e.Name
 	case *ast.SelectorExpr:
-		// pkg.Func or obj.Method
+
 		if x, ok := e.X.(*ast.Ident); ok {
 			return x.Name + "." + e.Sel.Name
 		}

@@ -23,7 +23,6 @@ func TestPackBudget(t *testing.T) {
 	}
 	defer st.Close()
 
-	// Store a test document
 	doc := domain.Document{
 		ID:      "doc1",
 		Path:    "/test/file.go",
@@ -37,7 +36,6 @@ func TestPackBudget(t *testing.T) {
 	tokenizer := analyzer.NewTokenizer(true)
 	packUC := NewPackUseCase(st, tokenizer, 0)
 
-	// Create chunks of varying sizes
 	chunks := []domain.ScoredChunk{
 		{
 			Chunk: domain.Chunk{
@@ -74,7 +72,6 @@ func TestPackBudget(t *testing.T) {
 		},
 	}
 
-	// Test with small budget - should only fit some chunks
 	packed, err := packUC.Pack("test query", chunks, 20)
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +85,6 @@ func TestPackBudget(t *testing.T) {
 		t.Errorf("expected budget 20, got %d", packed.BudgetTokens)
 	}
 
-	// Test with large budget - should fit all chunks
 	packed, err = packUC.Pack("test query", chunks, 1000)
 	if err != nil {
 		t.Fatal(err)
@@ -98,7 +94,6 @@ func TestPackBudget(t *testing.T) {
 		t.Error("expected some snippets with large budget")
 	}
 
-	// Verify all snippets have proper citations
 	for _, s := range packed.Snippets {
 		if s.Path == "" {
 			t.Error("snippet missing path")
@@ -152,7 +147,6 @@ func TestPackMergeAdjacent(t *testing.T) {
 	}
 	defer st.Close()
 
-	// Store test document
 	doc := domain.Document{
 		ID:      "doc1",
 		Path:    "/test/file.go",
@@ -164,7 +158,6 @@ func TestPackMergeAdjacent(t *testing.T) {
 	tokenizer := analyzer.NewTokenizer(true)
 	packUC := NewPackUseCase(st, tokenizer, 0)
 
-	// Create adjacent chunks from same file
 	chunks := []domain.ScoredChunk{
 		{
 			Chunk: domain.Chunk{
@@ -182,7 +175,7 @@ func TestPackMergeAdjacent(t *testing.T) {
 				ID:        "c2",
 				DocID:     "doc1",
 				StartLine: 11,
-				EndLine:   20, // Adjacent to c1
+				EndLine:   20,
 				Tokens:    []string{"c", "d"},
 				Text:      "Line 11-20",
 			},
@@ -193,7 +186,7 @@ func TestPackMergeAdjacent(t *testing.T) {
 				ID:        "c3",
 				DocID:     "doc1",
 				StartLine: 50,
-				EndLine:   60, // Not adjacent
+				EndLine:   60,
 				Tokens:    []string{"e", "f"},
 				Text:      "Line 50-60",
 			},
@@ -206,8 +199,6 @@ func TestPackMergeAdjacent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Adjacent chunks should be merged, so we expect fewer snippets than chunks
-	// c1 and c2 should merge, c3 stays separate
 	if len(packed.Snippets) > 2 {
 		t.Errorf("expected adjacent chunks to merge, got %d snippets for 3 chunks", len(packed.Snippets))
 	}
@@ -237,7 +228,6 @@ func TestPackUtilityRanking(t *testing.T) {
 	tokenizer := analyzer.NewTokenizer(true)
 	packUC := NewPackUseCase(st, tokenizer, 0)
 
-	// Create chunks where a lower-scored but smaller chunk has better utility
 	chunks := []domain.ScoredChunk{
 		{
 			Chunk: domain.Chunk{
@@ -245,7 +235,7 @@ func TestPackUtilityRanking(t *testing.T) {
 				DocID:     "doc1",
 				StartLine: 1,
 				EndLine:   100,
-				Tokens:    make([]string, 100), // Many tokens
+				Tokens:    make([]string, 100),
 				Text:      "This is a very long chunk with lots of text that takes many tokens to represent properly and thoroughly",
 			},
 			Score: 1.0,
@@ -259,11 +249,10 @@ func TestPackUtilityRanking(t *testing.T) {
 				Tokens:    []string{"compact", "useful"},
 				Text:      "compact useful",
 			},
-			Score: 0.9, // Slightly lower score but much smaller
+			Score: 0.9,
 		},
 	}
 
-	// With tight budget, the smaller chunk should be preferred (better utility)
 	packed, err := packUC.Pack("test", chunks, 10)
 	if err != nil {
 		t.Fatal(err)
@@ -273,7 +262,6 @@ func TestPackUtilityRanking(t *testing.T) {
 		t.Skip("no snippets fit in budget")
 	}
 
-	// The small chunk should be selected due to better score/token ratio
 	found := false
 	for _, s := range packed.Snippets {
 		if s.Range == "L200-210" {

@@ -6,8 +6,8 @@ import (
 
 // MMRReranker implements Maximal Marginal Relevance for result diversification.
 type MMRReranker struct {
-	lambda        float64
-	dedupJaccard  float64
+	lambda       float64
+	dedupJaccard float64
 }
 
 // NewMMRReranker creates a new MMR reranker.
@@ -29,7 +29,6 @@ func (r *MMRReranker) Rerank(candidates []domain.ScoredChunk, k int) []domain.Sc
 		k = len(candidates)
 	}
 
-	// Normalize scores to [0, 1] for fair comparison
 	maxScore := candidates[0].Score
 	for _, c := range candidates {
 		if c.Score > maxScore {
@@ -49,10 +48,9 @@ func (r *MMRReranker) Rerank(candidates []domain.ScoredChunk, k int) []domain.Sc
 		bestMMR := -1e9
 
 		for i, candidate := range remaining {
-			// Normalized relevance score
+
 			relevance := candidate.Score / maxScore
 
-			// Maximum similarity to already selected items
 			maxSim := 0.0
 			for _, sel := range selected {
 				sim := jaccardSimilarity(candidate.Chunk.Tokens, sel.Chunk.Tokens)
@@ -61,12 +59,10 @@ func (r *MMRReranker) Rerank(candidates []domain.ScoredChunk, k int) []domain.Sc
 				}
 			}
 
-			// MMR score
 			mmr := r.lambda*relevance - (1-r.lambda)*maxSim
 
-			// Also apply deduplication threshold
 			if maxSim > r.dedupJaccard {
-				continue // Skip if too similar to an already selected item
+				continue
 			}
 
 			if mmr > bestMMR {
@@ -76,14 +72,12 @@ func (r *MMRReranker) Rerank(candidates []domain.ScoredChunk, k int) []domain.Sc
 		}
 
 		if bestIdx == -1 {
-			// All remaining candidates are too similar, stop
+
 			break
 		}
 
-		// Add best candidate to selected
 		selected = append(selected, remaining[bestIdx])
 
-		// Remove from remaining
 		remaining = append(remaining[:bestIdx], remaining[bestIdx+1:]...)
 	}
 

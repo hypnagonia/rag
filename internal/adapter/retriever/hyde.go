@@ -39,13 +39,11 @@ func (r *HyDERetriever) Search(query string, k int) ([]domain.ScoredChunk, error
 		return nil, fmt.Errorf("HyDE requires LLM, embedder, and vector store")
 	}
 
-	// Generate hypothetical document
 	hypothetical, err := r.generateHypothetical(query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate hypothetical: %w", err)
 	}
 
-	// Embed the hypothetical document
 	embeddings, err := r.embedder.Embed([]string{hypothetical})
 	if err != nil {
 		return nil, fmt.Errorf("failed to embed hypothetical: %w", err)
@@ -54,13 +52,11 @@ func (r *HyDERetriever) Search(query string, k int) ([]domain.ScoredChunk, error
 		return nil, fmt.Errorf("no embedding generated")
 	}
 
-	// Search for similar actual documents
 	results, err := r.vectorStore.Search(embeddings[0], k)
 	if err != nil {
 		return nil, fmt.Errorf("vector search failed: %w", err)
 	}
 
-	// Convert to ScoredChunks
 	chunks := make([]domain.ScoredChunk, 0, len(results))
 	for _, result := range results {
 		chunk, err := r.chunkStore.GetChunk(result.ID)
@@ -90,13 +86,12 @@ Keep it concise (100-200 words max). Do not explain - just write the hypothetica
 
 // SearchWithFallback performs HyDE search with fallback to regular vector search.
 func (r *HyDERetriever) SearchWithFallback(query string, k int) ([]domain.ScoredChunk, error) {
-	// Try HyDE first
+
 	results, err := r.Search(query, k)
 	if err == nil && len(results) > 0 {
 		return results, nil
 	}
 
-	// Fallback to direct query embedding
 	if r.embedder == nil || r.vectorStore == nil {
 		return nil, fmt.Errorf("no embedder or vector store available for fallback")
 	}

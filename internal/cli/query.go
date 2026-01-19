@@ -50,23 +50,19 @@ func runQuery(cmd *cobra.Command, args []string) error {
 	cfg := GetConfig()
 	rootDir := GetRootDir()
 
-	// Check if index exists
 	dbPath := config.IndexDBPath(rootDir)
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		return fmt.Errorf("no index found. Run 'rag index' first")
 	}
 
-	// Open store
 	st, err := store.NewBoltStore(dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open index: %w", err)
 	}
 	defer st.Close()
 
-	// Create tokenizer
 	tokenizer := analyzer.NewTokenizer(cfg.Index.Stemming)
 
-	// Create BM25 retriever
 	bm25 := retriever.NewBM25Retriever(st, tokenizer, cfg.Index.K1, cfg.Index.B, cfg.Retrieve.PathBoostWeight)
 	mmr := retriever.NewMMRReranker(cfg.Retrieve.MMRLambda, cfg.Retrieve.DedupJaccard)
 
@@ -84,10 +80,8 @@ func runQuery(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Create retrieve use case
 	retrieveUC := usecase.NewRetrieveUseCase(searchRetriever, mmr, cfg.Retrieve.MinScoreThreshold)
 
-	// Determine top-k
 	topK := cfg.Retrieve.TopK
 	if queryTopK > 0 {
 		topK = queryTopK
@@ -112,7 +106,6 @@ func runQuery(cmd *cobra.Command, args []string) error {
 		endLine := c.Chunk.EndLine
 		text := c.Chunk.Text
 
-		// Expand context if requested
 		if queryContext > 0 {
 			newStart, newEnd, expandedText, err := expandContext(doc.Path, startLine, endLine, queryContext)
 			if err == nil && expandedText != "" {
@@ -131,7 +124,6 @@ func runQuery(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	// Output results
 	if queryJSON {
 		output, _ := json.MarshalIndent(results, "", "  ")
 		fmt.Println(string(output))
@@ -143,7 +135,7 @@ func runQuery(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Found %d results for: %s\n\n", len(results), queryText)
 		for i, r := range results {
 			fmt.Printf("--- [%d] %s:L%d-%d (score: %.2f) ---\n", i+1, r.Path, r.StartLine, r.EndLine, r.Score)
-			// Truncate long text for display (unless context expansion is used)
+
 			text := r.Text
 			if queryContext == 0 && len(text) > 500 {
 				text = text[:500] + "..."
@@ -168,14 +160,12 @@ func expandContext(path string, startLine, endLine, extraLines int) (newStart, n
 	}
 	defer file.Close()
 
-	// Calculate expanded range
 	newStart = startLine - extraLines
 	if newStart < 1 {
 		newStart = 1
 	}
 	newEnd = endLine + extraLines
 
-	// Read lines
 	scanner := bufio.NewScanner(file)
 	var lines []string
 	lineNum := 0
@@ -193,7 +183,6 @@ func expandContext(path string, startLine, endLine, extraLines int) (newStart, n
 		return startLine, endLine, "", err
 	}
 
-	// Adjust newEnd if file was shorter
 	actualEnd := newStart + len(lines) - 1
 	if actualEnd < newEnd {
 		newEnd = actualEnd
@@ -241,7 +230,6 @@ func setupHybridRetrieval(st *store.BoltStore, cfg *config.Config) (port.Embedde
 		return nil, nil, err
 	}
 
-	// Check if vector store has any vectors
 	count, err := vectorStore.Count()
 	if err != nil {
 		return nil, nil, err

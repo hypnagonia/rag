@@ -27,7 +27,7 @@ func NewCallGraphBuilder() *CallGraphBuilder {
 func (b *CallGraphBuilder) RegisterSymbols(symbols []domain.Symbol) {
 	for _, sym := range symbols {
 		b.symbolsByID[sym.ID] = sym
-		// Register by name for resolution (may have conflicts, but that's okay)
+
 		if sym.Type == "function" || sym.Type == "method" {
 			b.symbols[sym.Name] = sym
 		}
@@ -50,7 +50,7 @@ func (b *CallGraphBuilder) BuildCallGraph(docID, content string) ([]domain.CallG
 	ast.Inspect(file, func(n ast.Node) bool {
 		switch node := n.(type) {
 		case *ast.FuncDecl:
-			// Find the symbol for this function
+
 			funcName := node.Name.Name
 			if node.Recv != nil && len(node.Recv.List) > 0 {
 				recvType := formatReceiver(node.Recv.List[0].Type)
@@ -61,7 +61,7 @@ func (b *CallGraphBuilder) BuildCallGraph(docID, content string) ([]domain.CallG
 			if exists && sym.DocID == docID {
 				currentFunc = &sym
 			} else {
-				// Create a temporary symbol
+
 				line := fset.Position(node.Pos()).Line
 				currentFunc = &domain.Symbol{
 					ID:    generateSymbolID(docID, funcName, line),
@@ -83,7 +83,6 @@ func (b *CallGraphBuilder) BuildCallGraph(docID, content string) ([]domain.CallG
 				return true
 			}
 
-			// Try to resolve the callee
 			calleeID := calleeName
 			if sym, exists := b.symbols[calleeName]; exists {
 				calleeID = sym.ID
@@ -97,7 +96,7 @@ func (b *CallGraphBuilder) BuildCallGraph(docID, content string) ([]domain.CallG
 			return true
 
 		case *ast.FuncLit:
-			// Skip analyzing anonymous functions for now
+
 			return false
 		}
 		return true
@@ -112,11 +111,11 @@ func extractCalleeName(expr ast.Expr) string {
 	case *ast.Ident:
 		return e.Name
 	case *ast.SelectorExpr:
-		// Method call or package function
+
 		if ident, ok := e.X.(*ast.Ident); ok {
 			return ident.Name + "." + e.Sel.Name
 		}
-		// Could be a more complex expression
+
 		return e.Sel.Name
 	default:
 		return ""
@@ -183,7 +182,6 @@ func (b *CallGraphBuilder) BuildChunkMetadata(
 		return meta
 	}
 
-	// Determine chunk type based on primary symbol
 	primarySym := chunkSymbols[0]
 	meta.Name = primarySym.Name
 	meta.Signature = primarySym.Signature
@@ -191,7 +189,7 @@ func (b *CallGraphBuilder) BuildChunkMetadata(
 	switch primarySym.Type {
 	case "function", "method":
 		meta.Type = "function"
-		// Find calls made by this function
+
 		for _, entry := range entries {
 			if entry.CallerID == primarySym.ID {
 				meta.Calls = append(meta.Calls, entry.CalleeID)
@@ -208,7 +206,6 @@ func (b *CallGraphBuilder) BuildChunkMetadata(
 		meta.Type = "mixed"
 	}
 
-	// Extract imports if present in chunk text
 	if strings.Contains(chunk.Text, "import") {
 		meta.Imports = extractImportPaths(chunk.Text)
 	}
@@ -249,14 +246,12 @@ func extractSingleImport(line string) string {
 	line = strings.TrimPrefix(line, "import ")
 	line = strings.TrimSpace(line)
 
-	// Remove alias
 	parts := strings.Fields(line)
 	if len(parts) == 0 {
 		return ""
 	}
 	importPart := parts[len(parts)-1]
 
-	// Remove quotes
 	importPart = strings.Trim(importPart, "\"'`")
 
 	return importPart

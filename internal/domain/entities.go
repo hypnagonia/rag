@@ -33,12 +33,12 @@ type ScoredChunk struct {
 
 // PackedContext is the compressed context output for LLM consumption.
 type PackedContext struct {
-	Query         string        `json:"query"`
-	BudgetTokens  int           `json:"budget_tokens"`
-	UsedTokens    int           `json:"used_tokens"`
-	Snippets      []Snippet     `json:"snippets"`
-	OpenQuestions []string      `json:"open_questions,omitempty"`
-	Assumptions   []string      `json:"assumptions,omitempty"`
+	Query         string    `json:"query"`
+	BudgetTokens  int       `json:"budget_tokens"`
+	UsedTokens    int       `json:"used_tokens"`
+	Snippets      []Snippet `json:"snippets"`
+	OpenQuestions []string  `json:"open_questions,omitempty"`
+	Assumptions   []string  `json:"assumptions,omitempty"`
 }
 
 // Snippet is a code/text snippet with citation metadata.
@@ -82,12 +82,12 @@ type CallGraphEntry struct {
 
 // ChunkMetadata contains enriched metadata for a chunk.
 type ChunkMetadata struct {
-	Type       string   `json:"type,omitempty"`       // "function", "class", "comment", "mixed"
-	Name       string   `json:"name,omitempty"`       // Primary symbol name if applicable
-	Signature  string   `json:"signature,omitempty"`  // Function/method signature
-	Symbols    []string `json:"symbols,omitempty"`    // Symbol IDs contained in this chunk
-	Imports    []string `json:"imports,omitempty"`    // Import paths
-	Calls      []string `json:"calls,omitempty"`      // Functions/methods called
-	CalledBy   []string `json:"called_by,omitempty"`  // Functions/methods that call this
-	ParentID   string   `json:"parent_id,omitempty"`  // Parent chunk ID (for nested structures)
+	Type      string   `json:"type,omitempty"`      // "function", "class", "comment", "mixed"
+	Name      string   `json:"name,omitempty"`      // Primary symbol name if applicable
+	Signature string   `json:"signature,omitempty"` // Function/method signature
+	Symbols   []string `json:"symbols,omitempty"`   // Symbol IDs contained in this chunk
+	Imports   []string `json:"imports,omitempty"`   // Import paths
+	Calls     []string `json:"calls,omitempty"`     // Functions/methods called
+	CalledBy  []string `json:"called_by,omitempty"` // Functions/methods that call this
+	ParentID  string   `json:"parent_id,omitempty"` // Parent chunk ID (for nested structures)
 }

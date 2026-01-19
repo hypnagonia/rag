@@ -28,8 +28,8 @@ func NewRetrieveUseCase(
 
 // Retrieve searches for chunks matching the query.
 func (u *RetrieveUseCase) Retrieve(query string, topK int) ([]domain.ScoredChunk, error) {
-	// Get initial results from retriever (BM25 or hybrid)
-	candidates, err := u.retriever.Search(query, topK*2) // Get more candidates for MMR
+
+	candidates, err := u.retriever.Search(query, topK*2)
 	if err != nil {
 		return nil, err
 	}
@@ -38,10 +38,8 @@ func (u *RetrieveUseCase) Retrieve(query string, topK int) ([]domain.ScoredChunk
 		return nil, nil
 	}
 
-	// Apply MMR reranking for diversity
 	results := u.mmrReranker.Rerank(candidates, topK)
 
-	// Apply relevance threshold filtering if configured
 	if u.minScoreThreshold > 0 {
 		results = u.filterByThreshold(results)
 	}

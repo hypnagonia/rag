@@ -26,7 +26,7 @@ func (e *SymbolExtractor) ExtractSymbols(docID, content, lang string) ([]domain.
 	case "go":
 		return e.extractGoSymbols(docID, content)
 	default:
-		// Fallback to simple pattern-based extraction
+
 		return e.extractSimpleSymbols(docID, content, lang)
 	}
 }
@@ -50,13 +50,13 @@ func (e *SymbolExtractor) extractGoSymbols(docID, content string) ([]domain.Symb
 			}
 
 			if node.Recv != nil && len(node.Recv.List) > 0 {
-				// Method
+
 				sym.Type = "method"
 				recvType := formatReceiver(node.Recv.List[0].Type)
 				sym.Name = recvType + "." + node.Name.Name
 				sym.Signature = formatFuncSignature(node, recvType)
 			} else {
-				// Function
+
 				sym.Type = "function"
 				sym.Name = node.Name.Name
 				sym.Signature = formatFuncSignature(node, "")
@@ -96,7 +96,7 @@ func (e *SymbolExtractor) extractGoSymbols(docID, content string) ([]domain.Symb
 					DocID: docID,
 					Line:  fset.Position(name.Pos()).Line,
 				}
-				// Determine if constant or variable
+
 				if node.Values != nil {
 					sym.Type = "variable"
 				} else {
@@ -239,7 +239,7 @@ func extractJSLet(line string) string {
 }
 
 func extractJavaClass(line string) string {
-	// Remove access modifier
+
 	for _, mod := range []string{"public ", "private ", "protected "} {
 		line = strings.TrimPrefix(line, mod)
 	}
@@ -292,7 +292,6 @@ func formatFuncSignature(fn *ast.FuncDecl, recvType string) string {
 	sig.WriteString(fn.Name.Name)
 	sig.WriteString("(")
 
-	// Parameters
 	if fn.Type.Params != nil {
 		params := make([]string, 0)
 		for _, field := range fn.Type.Params.List {
@@ -308,7 +307,6 @@ func formatFuncSignature(fn *ast.FuncDecl, recvType string) string {
 	}
 	sig.WriteString(")")
 
-	// Return types
 	if fn.Type.Results != nil && len(fn.Type.Results.List) > 0 {
 		sig.WriteString(" ")
 		if len(fn.Type.Results.List) > 1 {

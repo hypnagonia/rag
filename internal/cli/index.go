@@ -37,7 +37,7 @@ func init() {
 }
 
 func runIndex(cmd *cobra.Command, args []string) error {
-	// Determine path to index
+
 	path := GetRootDir()
 	if len(args) > 0 {
 		var err error
@@ -47,7 +47,6 @@ func runIndex(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Verify path exists
 	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("path does not exist: %w", err)
@@ -58,12 +57,10 @@ func runIndex(cmd *cobra.Command, args []string) error {
 
 	cfg := GetConfig()
 
-	// Ensure .rag directory exists
 	if err := config.EnsureRAGDir(path); err != nil {
 		return fmt.Errorf("failed to create .rag directory: %w", err)
 	}
 
-	// Create store
 	dbPath := config.IndexDBPath(path)
 	st, err := store.NewBoltStore(dbPath)
 	if err != nil {
@@ -71,7 +68,6 @@ func runIndex(cmd *cobra.Command, args []string) error {
 	}
 	defer st.Close()
 
-	// Check for schema migration or rebuild
 	migrationResult, err := st.CheckMigration(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to check migration: %w", err)
@@ -90,10 +86,8 @@ func runIndex(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Create tokenizer
 	tokenizer := analyzer.NewTokenizer(cfg.Index.Stemming)
 
-	// Create walker with configured patterns
 	walker := fs.NewWalker(cfg.Index.Includes, cfg.Index.Excludes)
 
 	// Create chunker (use composite chunker if AST chunking is enabled)
@@ -104,7 +98,6 @@ func runIndex(cmd *cobra.Command, args []string) error {
 		chk = chunker.NewLineChunker(cfg.Index.ChunkTokens, cfg.Index.ChunkOverlap, tokenizer)
 	}
 
-	// Create index use case
 	indexUC := usecase.NewIndexUseCase(st, walker, chk, tokenizer)
 
 	fmt.Printf("Scanning %s...\n", path)
@@ -143,7 +136,6 @@ func runIndex(cmd *cobra.Command, args []string) error {
 
 		bar.Set(processed)
 
-		// Calculate and display ETA
 		if processed > 0 {
 			elapsed := time.Since(startTime)
 			rate := float64(processed) / elapsed.Seconds()
@@ -160,7 +152,6 @@ func runIndex(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("indexing failed: %w", err)
 	}
 
-	// Update schema info after successful indexing
 	if err := st.Migrate(cfg); err != nil {
 		return fmt.Errorf("failed to update schema info: %w", err)
 	}
@@ -175,7 +166,6 @@ func runIndex(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Print results
 	fmt.Printf("\nIndexing complete:\n")
 	fmt.Printf("  Files indexed:  %d\n", result.FilesIndexed)
 	fmt.Printf("  Files skipped:  %d (unchanged)\n", result.FilesSkipped)
@@ -220,13 +210,11 @@ func generateEmbeddings(st *store.BoltStore, cfg *config.Config) (int, error) {
 		return 0, fmt.Errorf("failed to create embedder: %w", err)
 	}
 
-	// Create vector store
 	vectorStore, err := store.NewBoltVectorStore(st.DB(), embedder.Dimension())
 	if err != nil {
 		return 0, fmt.Errorf("failed to create vector store: %w", err)
 	}
 
-	// Get all chunks that need embeddings
 	docs, err := st.ListDocs()
 	if err != nil {
 		return 0, err
@@ -256,7 +244,6 @@ func generateEmbeddings(st *store.BoltStore, cfg *config.Config) (int, error) {
 
 	fmt.Printf("\nGenerating embeddings for %d chunks...\n", len(allChunks))
 
-	// Process in batches
 	batchSize := cfg.Embedding.BatchSize
 	if batchSize <= 0 {
 		batchSize = 100
@@ -281,19 +268,16 @@ func generateEmbeddings(st *store.BoltStore, cfg *config.Config) (int, error) {
 		}
 		batch := allChunks[i:end]
 
-		// Extract texts for embedding
 		texts := make([]string, len(batch))
 		for j, c := range batch {
 			texts[j] = c.text
 		}
 
-		// Generate embeddings
 		embeddings, err := embedder.Embed(texts)
 		if err != nil {
 			return generated, fmt.Errorf("embedding batch failed: %w", err)
 		}
 
-		// Store vectors
 		items := make([]port.VectorItem, len(batch))
 		for j, c := range batch {
 			items[j] = port.VectorItem{

@@ -11,16 +11,16 @@ import (
 )
 
 var (
-	bucketDocs      = []byte("docs")
-	bucketChunks    = []byte("chunks")
-	bucketBlobs     = []byte("blobs")
-	bucketTerms     = []byte("terms")
-	bucketStats     = []byte("stats")
-	bucketDocChunks = []byte("doc_chunks") // docID -> []chunkID mapping
-	bucketSymbols   = []byte("symbols")    // symbolID -> Symbol
+	bucketDocs       = []byte("docs")
+	bucketChunks     = []byte("chunks")
+	bucketBlobs      = []byte("blobs")
+	bucketTerms      = []byte("terms")
+	bucketStats      = []byte("stats")
+	bucketDocChunks  = []byte("doc_chunks")  // docID -> []chunkID mapping
+	bucketSymbols    = []byte("symbols")     // symbolID -> Symbol
 	bucketDocSymbols = []byte("doc_symbols") // docID -> []symbolID mapping
-	bucketCallGraph = []byte("callgraph")  // callerID -> []CallGraphEntry
-	keyStats        = []byte("corpus_stats")
+	bucketCallGraph  = []byte("callgraph")   // callerID -> []CallGraphEntry
+	keyStats         = []byte("corpus_stats")
 )
 
 // BoltStore implements IndexStore using BoltDB.
@@ -35,7 +35,6 @@ func NewBoltStore(path string) (*BoltStore, error) {
 		return nil, fmt.Errorf("failed to open bolt db: %w", err)
 	}
 
-	// Create buckets
 	err = db.Update(func(tx *bbolt.Tx) error {
 		buckets := [][]byte{bucketDocs, bucketChunks, bucketBlobs, bucketTerms, bucketStats, bucketDocChunks, bucketSymbols, bucketDocSymbols, bucketCallGraph}
 		for _, b := range buckets {
@@ -144,7 +143,7 @@ func (s *BoltStore) ListDocs() ([]domain.Document, error) {
 // PutChunk stores a chunk.
 func (s *BoltStore) PutChunk(chunk domain.Chunk) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
-		// Store chunk metadata
+
 		meta := chunkMeta{
 			DocID:     chunk.DocID,
 			StartLine: chunk.StartLine,
@@ -159,12 +158,10 @@ func (s *BoltStore) PutChunk(chunk domain.Chunk) error {
 			return err
 		}
 
-		// Store chunk text in blobs bucket
 		if err := tx.Bucket(bucketBlobs).Put([]byte(chunk.ID), []byte(chunk.Text)); err != nil {
 			return err
 		}
 
-		// Update doc -> chunks mapping
 		docChunks := tx.Bucket(bucketDocChunks)
 		var chunkIDs []string
 		if existing := docChunks.Get([]byte(chunk.DocID)); existing != nil {
@@ -271,7 +268,7 @@ func (s *BoltStore) PutPosting(term string, chunkID string, tf int) error {
 		if data := b.Get([]byte(term)); data != nil {
 			json.Unmarshal(data, &postings)
 		}
-		// Update or add posting
+
 		found := false
 		for i := range postings {
 			if postings[i].ChunkID == chunkID {
@@ -317,7 +314,7 @@ func (s *BoltStore) DeletePostings(chunkID string, terms []string) error {
 			if err := json.Unmarshal(data, &postings); err != nil {
 				continue
 			}
-			// Filter out the chunk
+
 			filtered := make([]domain.Posting, 0, len(postings))
 			for _, p := range postings {
 				if p.ChunkID != chunkID {
@@ -393,11 +390,10 @@ func (s *BoltStore) BatchIndex(files []IndexedFile) error {
 		docChunksBucket := tx.Bucket(bucketDocChunks)
 		termsBucket := tx.Bucket(bucketTerms)
 
-		// Collect all postings to merge at the end
 		allPostings := make(map[string][]domain.Posting)
 
 		for _, file := range files {
-			// Store document
+
 			meta := docMeta{
 				Path:    file.Doc.Path,
 				ModTime: file.Doc.ModTime.Unix(),
@@ -411,7 +407,6 @@ func (s *BoltStore) BatchIndex(files []IndexedFile) error {
 				return err
 			}
 
-			// Store chunks
 			chunkIDs := make([]string, 0, len(file.Chunks))
 			for _, chunk := range file.Chunks {
 				chunkMeta := chunkMeta{
@@ -433,13 +428,11 @@ func (s *BoltStore) BatchIndex(files []IndexedFile) error {
 				chunkIDs = append(chunkIDs, chunk.ID)
 			}
 
-			// Store doc -> chunks mapping
 			chunkIDsData, _ := json.Marshal(chunkIDs)
 			if err := docChunksBucket.Put([]byte(file.Doc.ID), chunkIDsData); err != nil {
 				return err
 			}
 
-			// Collect postings
 			for term, chunkTFs := range file.Postings {
 				for chunkID, tf := range chunkTFs {
 					allPostings[term] = append(allPostings[term], domain.Posting{
@@ -450,7 +443,6 @@ func (s *BoltStore) BatchIndex(files []IndexedFile) error {
 			}
 		}
 
-		// Merge and store all postings
 		for term, newPostings := range allPostings {
 			var existing []domain.Posting
 			if data := termsBucket.Get([]byte(term)); data != nil {
@@ -488,7 +480,6 @@ func (s *BoltStore) PutSymbols(docID string, symbols []domain.Symbol) error {
 			symbolIDs = append(symbolIDs, sym.ID)
 		}
 
-		// Store doc -> symbols mapping
 		idsData, err := json.Marshal(symbolIDs)
 		if err != nil {
 			return err
@@ -597,7 +588,7 @@ func (s *BoltStore) GetAllSymbols() ([]domain.Symbol, error) {
 		return b.ForEach(func(k, v []byte) error {
 			var sym domain.Symbol
 			if err := json.Unmarshal(v, &sym); err != nil {
-				return nil // Skip invalid entries
+				return nil
 			}
 			symbols = append(symbols, sym)
 			return nil

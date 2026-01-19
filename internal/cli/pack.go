@@ -45,31 +45,25 @@ func runPack(cmd *cobra.Command, args []string) error {
 	cfg := GetConfig()
 	rootDir := GetRootDir()
 
-	// Check if index exists
 	dbPath := config.IndexDBPath(rootDir)
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		return fmt.Errorf("no index found. Run 'rag index' first")
 	}
 
-	// Open store
 	st, err := store.NewBoltStore(dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open index: %w", err)
 	}
 	defer st.Close()
 
-	// Create tokenizer
 	tokenizer := analyzer.NewTokenizer(cfg.Index.Stemming)
 
-	// Create retrievers
 	bm25 := retriever.NewBM25Retriever(st, tokenizer, cfg.Index.K1, cfg.Index.B, cfg.Retrieve.PathBoostWeight)
 	mmr := retriever.NewMMRReranker(cfg.Retrieve.MMRLambda, cfg.Retrieve.DedupJaccard)
 
-	// Create use cases
 	retrieveUC := usecase.NewRetrieveUseCase(bm25, mmr, cfg.Retrieve.MinScoreThreshold)
 	packUC := usecase.NewPackUseCase(st, tokenizer, cfg.Pack.RecencyBoost)
 
-	// Determine parameters
 	topK := cfg.Retrieve.TopK
 	if packTopK > 0 {
 		topK = packTopK
@@ -80,7 +74,6 @@ func runPack(cmd *cobra.Command, args []string) error {
 		budget = packBudget
 	}
 
-	// Retrieve candidates
 	chunks, err := retrieveUC.Retrieve(packQuery, topK)
 	if err != nil {
 		return fmt.Errorf("retrieval failed: %w", err)
@@ -91,13 +84,11 @@ func runPack(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Pack context
 	packed, err := packUC.Pack(packQuery, chunks, budget)
 	if err != nil {
 		return fmt.Errorf("packing failed: %w", err)
 	}
 
-	// Output
 	output, err := json.MarshalIndent(packed, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal output: %w", err)

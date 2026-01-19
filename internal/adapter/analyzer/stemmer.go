@@ -49,13 +49,12 @@ func measure(word string) int {
 	m := 0
 	i := 0
 
-	// Skip initial consonants
 	for i < n && isConsonant(word, i) {
 		i++
 	}
 
 	for i < n {
-		// Count vowel sequence
+
 		for i < n && !isConsonant(word, i) {
 			i++
 		}
@@ -63,7 +62,7 @@ func measure(word string) int {
 			break
 		}
 		m++
-		// Count consonant sequence
+
 		for i < n && isConsonant(word, i) {
 			i++
 		}

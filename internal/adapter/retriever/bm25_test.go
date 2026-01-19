@@ -10,24 +10,21 @@ import (
 )
 
 func TestBM25Scoring(t *testing.T) {
-	// Create temp directory for test DB
+
 	tmpDir, err := os.MkdirTemp("", "bm25_test")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// Create store
 	st, err := store.NewBoltStore(tmpDir + "/test.db")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer st.Close()
 
-	// Create tokenizer
 	tokenizer := analyzer.NewTokenizer(true)
 
-	// Setup test data
 	testChunks := []struct {
 		id     string
 		text   string
@@ -50,7 +47,6 @@ func TestBM25Scoring(t *testing.T) {
 		},
 	}
 
-	// Store chunks and postings
 	for _, tc := range testChunks {
 		chunk := domain.Chunk{
 			ID:        tc.id,
@@ -64,7 +60,6 @@ func TestBM25Scoring(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Build term frequency and store postings
 		tf := make(map[string]int)
 		for _, token := range tc.tokens {
 			tf[token]++
@@ -76,7 +71,6 @@ func TestBM25Scoring(t *testing.T) {
 		}
 	}
 
-	// Update stats
 	totalTokens := 0
 	for _, tc := range testChunks {
 		totalTokens += len(tc.tokens)
@@ -90,10 +84,8 @@ func TestBM25Scoring(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create retriever
 	retriever := NewBM25Retriever(st, tokenizer, 1.2, 0.75, 0)
 
-	// Test search for "authentication"
 	results, err := retriever.Search("authentication", 10)
 	if err != nil {
 		t.Fatal(err)
@@ -103,7 +95,6 @@ func TestBM25Scoring(t *testing.T) {
 		t.Fatal("expected results for 'authentication' query")
 	}
 
-	// Verify chunks with "authentication" are ranked higher
 	hasAuth := false
 	for _, r := range results[:2] {
 		if r.Chunk.ID == "chunk1" || r.Chunk.ID == "chunk3" {
@@ -115,7 +106,6 @@ func TestBM25Scoring(t *testing.T) {
 		t.Error("expected authentication-related chunks to be in top results")
 	}
 
-	// Test search for "database"
 	results, err = retriever.Search("database", 10)
 	if err != nil {
 		t.Fatal(err)
@@ -171,7 +161,6 @@ func TestBM25NoMatches(t *testing.T) {
 
 	tokenizer := analyzer.NewTokenizer(true)
 
-	// Add a chunk
 	chunk := domain.Chunk{
 		ID:        "chunk1",
 		DocID:     "doc1",

@@ -10,11 +10,11 @@ import (
 
 // ContextExpander expands search results with related context.
 type ContextExpander struct {
-	store            *store.BoltStore
-	includeImports   bool
-	includeTests     bool
+	store             *store.BoltStore
+	includeImports    bool
+	includeTests      bool
 	includeInterfaces bool
-	maxExpansion     int // Max chunks to add per result
+	maxExpansion      int // Max chunks to add per result
 }
 
 // NewContextExpander creates a new context expander.
@@ -34,13 +34,11 @@ func (e *ContextExpander) Expand(results []domain.ScoredChunk) ([]domain.ScoredC
 		return results, nil
 	}
 
-	// Track already included chunks
 	included := make(map[string]bool)
 	for _, r := range results {
 		included[r.Chunk.ID] = true
 	}
 
-	// Track docs we've seen
 	seenDocs := make(map[string]domain.Document)
 	for _, r := range results {
 		if _, exists := seenDocs[r.Chunk.DocID]; !exists {
@@ -60,10 +58,8 @@ func (e *ContextExpander) Expand(results []domain.ScoredChunk) ([]domain.ScoredC
 			continue
 		}
 
-		// Find related docs
 		relatedDocs := e.findRelatedDocs(doc, seenDocs)
 
-		// Add chunks from related docs
 		addedForResult := 0
 		for _, relDoc := range relatedDocs {
 			if addedForResult >= e.maxExpansion {
@@ -83,10 +79,9 @@ func (e *ContextExpander) Expand(results []domain.ScoredChunk) ([]domain.ScoredC
 					break
 				}
 
-				// Add with reduced score to indicate it's expanded context
 				expanded = append(expanded, domain.ScoredChunk{
 					Chunk: chunk,
-					Score: r.Score * 0.5, // 50% of original score
+					Score: r.Score * 0.5,
 				})
 				included[chunk.ID] = true
 				addedForResult++
@@ -101,7 +96,6 @@ func (e *ContextExpander) Expand(results []domain.ScoredChunk) ([]domain.ScoredC
 func (e *ContextExpander) findRelatedDocs(doc domain.Document, seenDocs map[string]domain.Document) []domain.Document {
 	related := make([]domain.Document, 0)
 
-	// Get all indexed docs
 	allDocs, err := e.store.ListDocs()
 	if err != nil {
 		return related
@@ -119,7 +113,6 @@ func (e *ContextExpander) findRelatedDocs(doc domain.Document, seenDocs map[stri
 			continue
 		}
 
-		// Check if this is a related doc
 		if e.isRelated(doc, d, baseName, dir) {
 			related = append(related, d)
 			seenDocs[d.ID] = d
@@ -135,16 +128,15 @@ func (e *ContextExpander) isRelated(original, candidate domain.Document, baseNam
 	candidateBaseNoExt := strings.TrimSuffix(candidateBase, filepath.Ext(candidateBase))
 	candidateDir := filepath.Dir(candidate.Path)
 
-	// Include test files for source files
 	if e.includeTests {
 		if isTestFile(candidate.Path) && !isTestFile(original.Path) {
-			// Check if test is for this source file
+
 			if strings.Contains(candidateBaseNoExt, baseName) ||
 				(candidateDir == dir && strings.HasPrefix(candidateBaseNoExt, baseName)) {
 				return true
 			}
 		}
-		// Include source files for test files
+
 		if !isTestFile(candidate.Path) && isTestFile(original.Path) {
 			if strings.Contains(baseName, candidateBaseNoExt) {
 				return true
@@ -152,11 +144,9 @@ func (e *ContextExpander) isRelated(original, candidate domain.Document, baseNam
 		}
 	}
 
-	// Include files in same package/directory
 	if e.includeImports {
 		if candidateDir == dir {
-			// Same directory - likely related
-			// Be more selective: only include if names share a prefix
+
 			if len(baseName) >= 3 && len(candidateBaseNoExt) >= 3 {
 				minLen := len(baseName)
 				if len(candidateBaseNoExt) < minLen {
@@ -169,10 +159,9 @@ func (e *ContextExpander) isRelated(original, candidate domain.Document, baseNam
 		}
 	}
 
-	// Include interface definitions (for Go)
 	if e.includeInterfaces {
 		if original.Lang == "go" && candidate.Lang == "go" {
-			// Look for files that might contain interface definitions
+
 			if strings.Contains(candidateBase, "interface") ||
 				strings.Contains(candidateBase, "types") ||
 				strings.Contains(candidateBase, "contract") {
@@ -190,12 +179,11 @@ func isTestFile(path string) bool {
 	ext := filepath.Ext(path)
 	baseNoExt := strings.TrimSuffix(base, ext)
 
-	// Common test file patterns
 	testPatterns := []string{
-		"_test",     // Go: foo_test.go
-		".test",     // JS/TS: foo.test.js
-		".spec",     // JS/TS: foo.spec.js
-		"test_",     // Python: test_foo.py
+		"_test",
+		".test",
+		".spec",
+		"test_",
 	}
 
 	for _, p := range testPatterns {
@@ -204,7 +192,6 @@ func isTestFile(path string) bool {
 		}
 	}
 
-	// Check for test directories
 	return strings.Contains(path, "/test/") || strings.Contains(path, "/tests/") ||
 		strings.Contains(path, "/__tests__/")
 }
@@ -212,25 +199,22 @@ func isTestFile(path string) bool {
 // ExpandWithImports expands results by following import statements.
 // This is a more sophisticated expansion that parses imports from chunks.
 func (e *ContextExpander) ExpandWithImports(results []domain.ScoredChunk) ([]domain.ScoredChunk, error) {
-	// First do basic expansion
+
 	expanded, err := e.Expand(results)
 	if err != nil {
 		return results, err
 	}
 
-	// Then look for imports in the chunks
 	imports := extractImports(results)
 	if len(imports) == 0 {
 		return expanded, nil
 	}
 
-	// Track what we've included
 	included := make(map[string]bool)
 	for _, r := range expanded {
 		included[r.Chunk.ID] = true
 	}
 
-	// Find docs matching imports
 	allDocs, err := e.store.ListDocs()
 	if err != nil {
 		return expanded, nil
@@ -241,7 +225,6 @@ func (e *ContextExpander) ExpandWithImports(results []domain.ScoredChunk) ([]dom
 			continue
 		}
 
-		// Check if this doc matches any import
 		for _, imp := range imports {
 			if matchesImport(doc.Path, imp) {
 				chunks, err := e.store.GetChunksByDoc(doc.ID)
@@ -249,11 +232,10 @@ func (e *ContextExpander) ExpandWithImports(results []domain.ScoredChunk) ([]dom
 					continue
 				}
 
-				// Add first chunk from imported file
 				if len(chunks) > 0 && !included[chunks[0].ID] {
 					expanded = append(expanded, domain.ScoredChunk{
 						Chunk: chunks[0],
-						Score: 0.3, // Lower score for import-expanded context
+						Score: 0.3,
 					})
 					included[chunks[0].ID] = true
 				}
@@ -271,7 +253,7 @@ func extractImports(chunks []domain.ScoredChunk) []string {
 	seen := make(map[string]bool)
 
 	for _, c := range chunks {
-		// Simple import extraction for Go
+
 		lines := strings.Split(c.Chunk.Text, "\n")
 		inImportBlock := false
 		for _, line := range lines {
@@ -286,7 +268,7 @@ func extractImports(chunks []domain.ScoredChunk) []string {
 				continue
 			}
 			if inImportBlock || strings.HasPrefix(line, "import ") {
-				// Extract import path
+
 				imp := extractImportPath(line)
 				if imp != "" && !seen[imp] {
 					imports = append(imports, imp)
@@ -301,21 +283,18 @@ func extractImports(chunks []domain.ScoredChunk) []string {
 
 // extractImportPath extracts the import path from an import line.
 func extractImportPath(line string) string {
-	// Remove "import" keyword if present
+
 	line = strings.TrimPrefix(line, "import ")
 	line = strings.TrimSpace(line)
 
-	// Remove alias if present
 	parts := strings.Fields(line)
 	if len(parts) == 0 {
 		return ""
 	}
 	importPart := parts[len(parts)-1]
 
-	// Remove quotes
 	importPart = strings.Trim(importPart, "\"'`")
 
-	// Skip standard library
 	if !strings.Contains(importPart, "/") {
 		return ""
 	}
@@ -330,11 +309,10 @@ func extractImportPath(line string) string {
 
 // matchesImport checks if a file path matches an import path.
 func matchesImport(filePath, importPath string) bool {
-	// Normalize paths
+
 	filePath = strings.ReplaceAll(filePath, "\\", "/")
 	importPath = strings.ReplaceAll(importPath, "\\", "/")
 
-	// Check if file path ends with import path
 	return strings.HasSuffix(filePath, importPath) ||
 		strings.Contains(filePath, importPath+"/")
 }

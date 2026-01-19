@@ -61,7 +61,6 @@ func (c *QueryCache) Get(query string, topK int) ([]domain.ScoredChunk, bool) {
 		return nil, false
 	}
 
-	// Check TTL
 	if time.Since(entry.timestamp) > c.ttl {
 		c.mu.Lock()
 		delete(c.entries, key)
@@ -70,7 +69,6 @@ func (c *QueryCache) Get(query string, topK int) ([]domain.ScoredChunk, bool) {
 		return nil, false
 	}
 
-	// Check if index was rebuilt since caching
 	if entry.indexGen != currentGen {
 		c.mu.Lock()
 		delete(c.entries, key)
@@ -79,7 +77,6 @@ func (c *QueryCache) Get(query string, topK int) ([]domain.ScoredChunk, bool) {
 		return nil, false
 	}
 
-	// Move to end of LRU order (most recently used)
 	c.mu.Lock()
 	c.moveToEnd(key)
 	c.mu.Unlock()
@@ -94,9 +91,8 @@ func (c *QueryCache) Put(query string, topK int, results []domain.ScoredChunk) {
 
 	key := cacheKey(query, topK)
 
-	// Check if already exists
 	if _, exists := c.entries[key]; exists {
-		// Update existing
+
 		c.entries[key] = &cacheEntry{
 			results:   results,
 			timestamp: time.Now(),
@@ -106,12 +102,10 @@ func (c *QueryCache) Put(query string, topK int, results []domain.ScoredChunk) {
 		return
 	}
 
-	// Evict oldest if at capacity
 	if len(c.entries) >= c.maxSize {
 		c.evictOldest()
 	}
 
-	// Add new entry
 	c.entries[key] = &cacheEntry{
 		results:   results,
 		timestamp: time.Now(),
@@ -184,18 +178,16 @@ func NewCachedRetriever(retriever Retriever, cache *QueryCache) *CachedRetriever
 
 // Search performs a cached search.
 func (r *CachedRetriever) Search(query string, k int) ([]domain.ScoredChunk, error) {
-	// Check cache first
+
 	if results, hit := r.cache.Get(query, k); hit {
 		return results, nil
 	}
 
-	// Cache miss - perform actual search
 	results, err := r.retriever.Search(query, k)
 	if err != nil {
 		return nil, err
 	}
 
-	// Store in cache
 	r.cache.Put(query, k, results)
 
 	return results, nil

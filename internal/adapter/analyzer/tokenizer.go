@@ -50,12 +50,12 @@ func (t *Tokenizer) Tokenize(text string) []string {
 // CountTokens returns an approximate token count for LLM budget estimation.
 // Uses a simple heuristic: ~4 characters per token on average.
 func (t *Tokenizer) CountTokens(text string) int {
-	// Simple approximation: count words and add some overhead for subword tokens
+
 	words := splitWords(text)
 	if len(words) == 0 {
 		return 0
 	}
-	// Rough estimate: average word is about 1.3 tokens
+
 	return int(float64(len(words)) * 1.3)
 }
 

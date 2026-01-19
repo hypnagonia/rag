@@ -28,10 +28,10 @@ func NewHybridRetriever(
 	bm25Weight float64,
 ) *HybridRetriever {
 	if rrfK <= 0 {
-		rrfK = 60 // Standard default
+		rrfK = 60
 	}
 	if bm25Weight < 0 || bm25Weight > 1 {
-		bm25Weight = 0.5 // Equal weighting
+		bm25Weight = 0.5
 	}
 
 	return &HybridRetriever{
@@ -46,35 +46,30 @@ func NewHybridRetriever(
 
 // Search performs hybrid search combining BM25 and vector similarity.
 func (r *HybridRetriever) Search(query string, k int) ([]domain.ScoredChunk, error) {
-	// If no vector store or embedder, fall back to BM25 only
+
 	if r.vectorStore == nil || r.embedder == nil {
 		return r.bm25.Search(query, k)
 	}
 
-	// Get expanded candidate pool from both retrievers
 	candidateK := k * 3
 	if candidateK < 20 {
 		candidateK = 20
 	}
 
-	// BM25 search
 	bm25Results, err := r.bm25.Search(query, candidateK)
 	if err != nil {
-		// Fall back to vector-only if BM25 fails
+
 		return r.vectorOnlySearch(query, k)
 	}
 
-	// Vector search
 	vectorResults, err := r.vectorSearch(query, candidateK)
 	if err != nil {
-		// Fall back to BM25-only if vector search fails
+
 		return bm25Results[:min(k, len(bm25Results))], nil
 	}
 
-	// Fuse results using Reciprocal Rank Fusion
 	fused := r.rrfFuse(bm25Results, vectorResults)
 
-	// Limit to k results
 	if len(fused) > k {
 		fused = fused[:k]
 	}
@@ -84,7 +79,7 @@ func (r *HybridRetriever) Search(query string, k int) ([]domain.ScoredChunk, err
 
 // vectorSearch performs vector similarity search.
 func (r *HybridRetriever) vectorSearch(query string, k int) ([]domain.ScoredChunk, error) {
-	// Embed the query
+
 	embeddings, err := r.embedder.Embed([]string{query})
 	if err != nil {
 		return nil, err
@@ -93,13 +88,11 @@ func (r *HybridRetriever) vectorSearch(query string, k int) ([]domain.ScoredChun
 		return nil, nil
 	}
 
-	// Search vector store
 	results, err := r.vectorStore.Search(embeddings[0], k)
 	if err != nil {
 		return nil, err
 	}
 
-	// Convert to ScoredChunks
 	chunks := make([]domain.ScoredChunk, 0, len(results))
 	for _, result := range results {
 		chunk, err := r.chunkStore.GetChunk(result.ID)
@@ -126,13 +119,11 @@ func (r *HybridRetriever) rrfFuse(bm25Results, vectorResults []domain.ScoredChun
 	rrfScores := make(map[string]float64)
 	chunkMap := make(map[string]domain.Chunk)
 
-	// Score BM25 results
 	for rank, result := range bm25Results {
 		rrfScores[result.Chunk.ID] += r.bm25Weight / float64(r.rrfK+rank+1)
 		chunkMap[result.Chunk.ID] = result.Chunk
 	}
 
-	// Score vector results
 	vectorWeight := 1.0 - r.bm25Weight
 	for rank, result := range vectorResults {
 		rrfScores[result.Chunk.ID] += vectorWeight / float64(r.rrfK+rank+1)
@@ -141,7 +132,6 @@ func (r *HybridRetriever) rrfFuse(bm25Results, vectorResults []domain.ScoredChun
 		}
 	}
 
-	// Convert to scored chunks
 	fused := make([]domain.ScoredChunk, 0, len(rrfScores))
 	for id, score := range rrfScores {
 		fused = append(fused, domain.ScoredChunk{
@@ -150,7 +140,6 @@ func (r *HybridRetriever) rrfFuse(bm25Results, vectorResults []domain.ScoredChun
 		})
 	}
 
-	// Sort by RRF score descending
 	sort.Slice(fused, func(i, j int) bool {
 		return fused[i].Score > fused[j].Score
 	})

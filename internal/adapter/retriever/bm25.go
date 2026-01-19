@@ -47,13 +47,11 @@ func (r *BM25Retriever) Search(query string, k int) ([]domain.ScoredChunk, error
 		return nil, nil
 	}
 
-	// Build query token set for path matching
 	queryTokenSet := make(map[string]struct{}, len(queryTokens))
 	for _, t := range queryTokens {
 		queryTokenSet[t] = struct{}{}
 	}
 
-	// Collect all matching chunks and their scores
 	chunkScores := make(map[string]float64)
 	chunkLengths := make(map[string]int)
 	chunkDocIDs := make(map[string]string)
@@ -64,13 +62,12 @@ func (r *BM25Retriever) Search(query string, k int) ([]domain.ScoredChunk, error
 			continue
 		}
 
-		// Calculate IDF for this term
 		n := float64(len(postings))
 		N := float64(stats.TotalChunks)
 		idf := math.Log((N-n+0.5)/(n+0.5) + 1)
 
 		for _, posting := range postings {
-			// Get chunk length if not cached
+
 			if _, exists := chunkLengths[posting.ChunkID]; !exists {
 				chunk, err := r.store.GetChunk(posting.ChunkID)
 				if err != nil {
@@ -80,21 +77,17 @@ func (r *BM25Retriever) Search(query string, k int) ([]domain.ScoredChunk, error
 				chunkDocIDs[posting.ChunkID] = chunk.DocID
 			}
 
-			// BM25 term score
 			dl := float64(chunkLengths[posting.ChunkID])
 			avgDl := stats.AvgChunkLen
 			tf := float64(posting.TF)
 
-			// BM25 formula: IDF * (tf * (k1+1)) / (tf + k1 * (1-b + b*dl/avgDl))
 			score := idf * (tf * (r.k1 + 1)) / (tf + r.k1*(1-r.b+r.b*dl/avgDl))
 			chunkScores[posting.ChunkID] += score
 		}
 	}
 
-	// Cache for doc path boosts (same doc = same boost)
 	docPathBoosts := make(map[string]float64)
 
-	// Convert to scored chunks, apply path boost, and sort
 	results := make([]domain.ScoredChunk, 0, len(chunkScores))
 	for chunkID, score := range chunkScores {
 		chunk, err := r.store.GetChunk(chunkID)
@@ -102,7 +95,6 @@ func (r *BM25Retriever) Search(query string, k int) ([]domain.ScoredChunk, error
 			continue
 		}
 
-		// Apply path boost if enabled
 		finalScore := score
 		if r.pathBoostWeight > 0 {
 			docID := chunkDocIDs[chunkID]
@@ -123,12 +115,10 @@ func (r *BM25Retriever) Search(query string, k int) ([]domain.ScoredChunk, error
 		})
 	}
 
-	// Sort by score descending
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Score > results[j].Score
 	})
 
-	// Limit to k results
 	if len(results) > k {
 		results = results[:k]
 	}
@@ -151,24 +141,23 @@ func (r *BM25Retriever) calculatePathBoost(path string, queryTokenSet map[string
 		}
 	}
 
-	// Return ratio of matched query tokens to total query tokens
 	return float64(matches) / float64(len(queryTokenSet))
 }
 
 // tokenizePath splits a file path into searchable tokens.
 // e.g., "internal/adapter/retriever/bm25.go" -> ["internal", "adapter", "retriever", "bm25", "go"]
 func tokenizePath(path string) []string {
-	// Get just the path without leading slashes
+
 	path = strings.TrimPrefix(path, "/")
 
 	// Split by path separator and dots
 	var tokens []string
 	parts := strings.Split(path, string(filepath.Separator))
 	for _, part := range parts {
-		// Also split by dots (for file extensions and compound names)
+
 		subparts := strings.Split(part, ".")
 		for _, sp := range subparts {
-			// Split by underscores and hyphens too
+
 			for _, token := range strings.FieldsFunc(sp, func(r rune) bool {
 				return r == '_' || r == '-'
 			}) {
@@ -184,7 +173,7 @@ func tokenizePath(path string) []string {
 
 // ComputeBM25Score computes BM25 score for a single chunk against query tokens.
 func ComputeBM25Score(queryTokens []string, chunk domain.Chunk, stats domain.Stats, k1, b float64) float64 {
-	// Build term frequency map for the chunk
+
 	chunkTF := make(map[string]int)
 	for _, token := range chunk.Tokens {
 		chunkTF[token]++
@@ -201,9 +190,7 @@ func ComputeBM25Score(queryTokens []string, chunk domain.Chunk, stats domain.Sta
 			continue
 		}
 
-		// For IDF, we'd need the document frequency, but for a simplified version
-		// we'll assume uniform distribution. In production, you'd look this up.
-		n := 1.0 // Simplified: assume term appears in at least 1 doc
+		n := 1.0
 		idf := math.Log((N-n+0.5)/(n+0.5) + 1)
 
 		tfFloat := float64(tf)

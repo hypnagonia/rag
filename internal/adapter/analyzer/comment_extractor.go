@@ -19,10 +19,10 @@ type CommentExtractor struct {
 }
 
 type languageCommentPatterns struct {
-	lineComment  *regexp.Regexp
-	blockStart   *regexp.Regexp
-	blockEnd     *regexp.Regexp
-	docComment   *regexp.Regexp
+	lineComment *regexp.Regexp
+	blockStart  *regexp.Regexp
+	blockEnd    *regexp.Regexp
+	docComment  *regexp.Regexp
 }
 
 // NewCommentExtractor creates a new comment extractor.
@@ -75,7 +75,7 @@ func NewCommentExtractor() *CommentExtractor {
 				lineComment: regexp.MustCompile(`^\s*//(.*)$`),
 				blockStart:  regexp.MustCompile(`/\*`),
 				blockEnd:    regexp.MustCompile(`\*/`),
-				docComment:  regexp.MustCompile(`^\s*///?\s*(.*)$`), // Rust doc comments
+				docComment:  regexp.MustCompile(`^\s*///?\s*(.*)$`),
 			},
 			"ruby": {
 				lineComment: regexp.MustCompile(`^\s*#(.*)$`),
@@ -97,7 +97,7 @@ func NewCommentExtractor() *CommentExtractor {
 func (e *CommentExtractor) Extract(content string, lang string) []CommentBlock {
 	patterns, ok := e.patterns[lang]
 	if !ok {
-		// Default to C-style comments
+
 		patterns = e.patterns["go"]
 	}
 
@@ -109,9 +109,8 @@ func (e *CommentExtractor) Extract(content string, lang string) []CommentBlock {
 	var blockContent strings.Builder
 
 	for lineNum, line := range lines {
-		lineNumber := lineNum + 1 // 1-indexed
+		lineNumber := lineNum + 1
 
-		// Handle block comments
 		if inBlockComment {
 			blockContent.WriteString(line)
 			blockContent.WriteString("\n")
@@ -128,11 +127,10 @@ func (e *CommentExtractor) Extract(content string, lang string) []CommentBlock {
 			continue
 		}
 
-		// Check for block comment start
 		if patterns.blockStart != nil && patterns.blockStart.MatchString(line) {
-			// Check if it's a single-line block comment
+
 			if patterns.blockEnd != nil && patterns.blockEnd.MatchString(line) {
-				// Single line block comment like /* comment */
+
 				text := extractBetween(line, patterns.blockStart, patterns.blockEnd)
 				if text != "" {
 					comments = append(comments, CommentBlock{
@@ -143,7 +141,7 @@ func (e *CommentExtractor) Extract(content string, lang string) []CommentBlock {
 					})
 				}
 			} else {
-				// Start of multi-line block comment
+
 				inBlockComment = true
 				blockStartLine = lineNumber
 				blockContent.WriteString(line)
@@ -152,7 +150,6 @@ func (e *CommentExtractor) Extract(content string, lang string) []CommentBlock {
 			continue
 		}
 
-		// Check for doc comments (special annotations like TODO, FIXME)
 		if patterns.docComment != nil {
 			if matches := patterns.docComment.FindStringSubmatch(line); len(matches) > 0 {
 				comments = append(comments, CommentBlock{
@@ -165,7 +162,6 @@ func (e *CommentExtractor) Extract(content string, lang string) []CommentBlock {
 			}
 		}
 
-		// Check for line comments
 		if patterns.lineComment != nil {
 			if matches := patterns.lineComment.FindStringSubmatch(line); len(matches) > 1 {
 				text := strings.TrimSpace(matches[1])
@@ -181,7 +177,6 @@ func (e *CommentExtractor) Extract(content string, lang string) []CommentBlock {
 		}
 	}
 
-	// Merge consecutive line comments into single blocks
 	return mergeConsecutiveComments(comments)
 }
 
@@ -207,7 +202,6 @@ func mergeConsecutiveComments(comments []CommentBlock) []CommentBlock {
 	for i < len(comments) {
 		current := comments[i]
 
-		// Don't merge block or doc comments
 		if current.Type != "line" {
 			merged = append(merged, current)
 			i++
@@ -222,7 +216,7 @@ func mergeConsecutiveComments(comments []CommentBlock) []CommentBlock {
 		j := i + 1
 		for j < len(comments) {
 			next := comments[j]
-			// Only merge line comments that are on consecutive lines
+
 			if next.Type == "line" && next.StartLine == endLine+1 {
 				textBuilder.WriteString("\n")
 				textBuilder.WriteString(next.Text)

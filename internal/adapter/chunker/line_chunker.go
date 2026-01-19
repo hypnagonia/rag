@@ -37,7 +37,7 @@ func (c *LineChunker) Chunk(doc domain.Document, content string) ([]domain.Chunk
 	startLine := 0
 
 	for startLine < len(lines) {
-		// Find the end line for this chunk
+
 		endLine := startLine
 		currentTokens := 0
 		var chunkText strings.Builder
@@ -46,7 +46,6 @@ func (c *LineChunker) Chunk(doc domain.Document, content string) ([]domain.Chunk
 			lineText := lines[endLine]
 			lineTokens := c.tokenizer.CountTokens(lineText)
 
-			// Check if adding this line would exceed the limit
 			if currentTokens > 0 && currentTokens+lineTokens > c.maxTokens {
 				break
 			}
@@ -59,7 +58,6 @@ func (c *LineChunker) Chunk(doc domain.Document, content string) ([]domain.Chunk
 			endLine++
 		}
 
-		// Ensure we make progress even if a single line exceeds maxTokens
 		if endLine == startLine {
 			if chunkText.Len() > 0 {
 				chunkText.WriteString("\n")
@@ -74,17 +72,16 @@ func (c *LineChunker) Chunk(doc domain.Document, content string) ([]domain.Chunk
 		chunk := domain.Chunk{
 			ID:        generateChunkID(doc.ID, startLine, endLine),
 			DocID:     doc.ID,
-			StartLine: startLine + 1, // 1-indexed for display
-			EndLine:   endLine,       // 1-indexed, inclusive
+			StartLine: startLine + 1,
+			EndLine:   endLine,
 			Tokens:    tokens,
 			Text:      text,
 		}
 		chunks = append(chunks, chunk)
 
-		// Move start with overlap, but ensure we always make progress
 		overlapLines := c.calculateOverlapLines(lines, startLine, endLine)
 		newStart := endLine - overlapLines
-		// Ensure we always advance at least one line to avoid infinite loops
+
 		if newStart <= startLine {
 			newStart = startLine + 1
 		}
@@ -106,7 +103,6 @@ func (c *LineChunker) calculateOverlapLines(lines []string, start, end int) int 
 	overlapLines := 0
 	tokens := 0
 
-	// Work backwards from end to find overlap
 	for i := end - 1; i >= start && tokens < c.overlap; i-- {
 		tokens += c.tokenizer.CountTokens(lines[i])
 		overlapLines++

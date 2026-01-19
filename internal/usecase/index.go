@@ -62,13 +62,11 @@ type ProgressCallback func(processed, total int, currentFile string)
 func (u *IndexUseCase) Index(root string, progress ProgressCallback) (*IndexResult, error) {
 	result := &IndexResult{}
 
-	// Walk the directory
 	files, err := u.walker.Walk(root)
 	if err != nil {
 		return nil, fmt.Errorf("failed to walk directory: %w", err)
 	}
 
-	// Get existing documents for incremental update
 	existingDocs, err := u.store.ListDocs()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list existing docs: %w", err)
@@ -79,7 +77,6 @@ func (u *IndexUseCase) Index(root string, progress ProgressCallback) (*IndexResu
 		existingMap[doc.Path] = doc
 	}
 
-	// Track which files still exist
 	seenPaths := make(map[string]bool)
 
 	// Separate files into those needing indexing and those to skip
@@ -95,7 +92,7 @@ func (u *IndexUseCase) Index(root string, progress ProgressCallback) (*IndexResu
 				skippedDocs = append(skippedDocs, existing)
 				continue
 			}
-			// File modified, delete old data first
+
 			if err := u.deleteDocument(existing.ID); err != nil {
 				result.Errors = append(result.Errors, fmt.Sprintf("failed to delete old data for %s: %v", file.Path, err))
 			}
@@ -103,7 +100,6 @@ func (u *IndexUseCase) Index(root string, progress ProgressCallback) (*IndexResu
 		filesToIndex = append(filesToIndex, file)
 	}
 
-	// Delete documents for files that no longer exist
 	for path, doc := range existingMap {
 		if !seenPaths[path] {
 			if err := u.deleteDocument(doc.ID); err != nil {
@@ -125,7 +121,6 @@ func (u *IndexUseCase) Index(root string, progress ProgressCallback) (*IndexResu
 		}
 	}
 
-	// Process files in parallel
 	if len(filesToIndex) > 0 {
 		indexed, chunkCount, chunkLen, errors := u.indexFilesParallel(filesToIndex, progress)
 		result.FilesIndexed = indexed
@@ -134,7 +129,6 @@ func (u *IndexUseCase) Index(root string, progress ProgressCallback) (*IndexResu
 		existingChunkLen += int64(chunkLen)
 	}
 
-	// Update stats
 	totalChunks := int(existingChunkCount)
 	avgChunkLen := 0.0
 	if totalChunks > 0 {
@@ -168,7 +162,6 @@ func (u *IndexUseCase) indexFilesParallel(files []fs.FileInfo, progress Progress
 	totalFiles := len(files)
 	var processed int64
 
-	// Channel for files to process
 	jobs := make(chan fs.FileInfo, len(files))
 	results := make(chan processedFile, len(files))
 
@@ -182,7 +175,6 @@ func (u *IndexUseCase) indexFilesParallel(files []fs.FileInfo, progress Progress
 				result := u.processFile(file)
 				results <- result
 
-				// Update progress
 				p := int(atomic.AddInt64(&processed, 1))
 				if progress != nil {
 					progress(p, totalFiles, file.Path)
@@ -191,7 +183,6 @@ func (u *IndexUseCase) indexFilesParallel(files []fs.FileInfo, progress Progress
 		}()
 	}
 
-	// Send jobs
 	go func() {
 		for _, file := range files {
 			jobs <- file
@@ -199,7 +190,6 @@ func (u *IndexUseCase) indexFilesParallel(files []fs.FileInfo, progress Progress
 		close(jobs)
 	}()
 
-	// Wait for workers and close results
 	go func() {
 		wg.Wait()
 		close(results)
@@ -220,7 +210,6 @@ func (u *IndexUseCase) indexFilesParallel(files []fs.FileInfo, progress Progress
 		chunkCount += len(result.file.Chunks)
 		chunkLen += result.chunkLen
 
-		// Write batch when full
 		if len(batch) >= batchSize {
 			if err := u.store.BatchIndex(batch); err != nil {
 				errors = append(errors, fmt.Sprintf("batch write failed: %v", err))
@@ -229,7 +218,6 @@ func (u *IndexUseCase) indexFilesParallel(files []fs.FileInfo, progress Progress
 		}
 	}
 
-	// Write remaining batch
 	if len(batch) > 0 {
 		if err := u.store.BatchIndex(batch); err != nil {
 			errors = append(errors, fmt.Sprintf("batch write failed: %v", err))
@@ -243,14 +231,12 @@ func (u *IndexUseCase) indexFilesParallel(files []fs.FileInfo, progress Progress
 func (u *IndexUseCase) processFile(file fs.FileInfo) processedFile {
 	result := processedFile{path: file.Path}
 
-	// Read file content
 	content, err := fs.ReadFile(file.Path)
 	if err != nil {
 		result.err = fmt.Errorf("failed to read file: %w", err)
 		return result
 	}
 
-	// Create document
 	docID := generateDocID(file.Path)
 	doc := domain.Document{
 		ID:      docID,
@@ -259,14 +245,12 @@ func (u *IndexUseCase) processFile(file fs.FileInfo) processedFile {
 		Lang:    detectLanguage(file.Path),
 	}
 
-	// Chunk the content
 	chunks, err := u.chunkSvc.Chunk(doc, content)
 	if err != nil {
 		result.err = fmt.Errorf("failed to chunk content: %w", err)
 		return result
 	}
 
-	// Build postings map
 	postings := make(map[string]map[string]int)
 	chunkLen := 0
 
@@ -296,13 +280,12 @@ func (u *IndexUseCase) processFile(file fs.FileInfo) processedFile {
 
 // deleteDocument deletes a document and all its associated data.
 func (u *IndexUseCase) deleteDocument(docID string) error {
-	// Get chunks for this document
+
 	chunks, err := u.store.GetChunksByDoc(docID)
 	if err != nil {
 		return err
 	}
 
-	// Delete postings for each chunk
 	for _, chunk := range chunks {
 		uniqueTerms := make(map[string]struct{})
 		for _, token := range chunk.Tokens {
@@ -317,12 +300,10 @@ func (u *IndexUseCase) deleteDocument(docID string) error {
 		}
 	}
 
-	// Delete chunks
 	if err := u.store.DeleteChunksByDoc(docID); err != nil {
 		return err
 	}
 
-	// Delete document
 	return u.store.DeleteDoc(docID)
 }
 
