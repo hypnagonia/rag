@@ -38,7 +38,7 @@ $ rag query -q "How did Drogo die" -index ./books -expand
 ```
 > Drogo died after being placed in a comatose state by a bloodmagic ritual
 > performed by Mirri Maz Duur. The ritual involved sacrificing his horse and
-> using its blood, but it left Drogo alive yet unresponsive [125804431.txt:L16544-16620].
+> using its blood, but it left Drogo alive yet unresponsive [1.txt:L16544-16620].
 > Mirri Maz Duur states that Drogo will only return to his former self under
 > impossible conditions, implying he will never recover [1.txt:L17745-17772].
 >

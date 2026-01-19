@@ -1,7 +1,5 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Guidelines
 - Don not commit clause as projects coauthor
 - Never add comments to generated code!
@@ -21,7 +19,6 @@ go mod tidy                   # Update dependencies
 rag index [path]              # Index files, creates .rag/index.db
 rag query -q "search"         # Search with BM25 + MMR
 rag pack -q "question" -b 4000  # Pack context for LLM consumption
-rag runprompt --runtime --ctx context.json -q "question"  # Generate prompts
 ```
 
 ## Architecture
