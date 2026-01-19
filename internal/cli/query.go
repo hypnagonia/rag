@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"rag/config"
@@ -59,7 +60,13 @@ func runQuery(cmd *cobra.Command, args []string) error {
 
 	dbPath := config.IndexDBPath(rootDir)
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		return fmt.Errorf("no index found. Run 'rag index' first")
+		if askYesNo("No index found. Index this directory?") {
+			if err := runIndex(cmd, []string{rootDir}); err != nil {
+				return fmt.Errorf("indexing failed: %w", err)
+			}
+		} else {
+			return fmt.Errorf("no index found. Run 'rag index' first")
+		}
 	}
 
 	st, err := store.NewBoltStore(dbPath)
@@ -67,6 +74,29 @@ func runQuery(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to open index: %w", err)
 	}
 	defer st.Close()
+
+	changedFiles := checkForChanges(st)
+	if len(changedFiles) > 0 {
+		fmt.Printf("Detected %d changed file(s):\n", len(changedFiles))
+		for i, f := range changedFiles {
+			if i >= 5 {
+				fmt.Printf("  ... and %d more\n", len(changedFiles)-5)
+				break
+			}
+			fmt.Printf("  - %s\n", f)
+		}
+		if askYesNo("Reindex?") {
+			st.Close()
+			if err := runIndex(cmd, []string{rootDir}); err != nil {
+				return fmt.Errorf("reindexing failed: %w", err)
+			}
+			st, err = store.NewBoltStore(dbPath)
+			if err != nil {
+				return fmt.Errorf("failed to reopen index: %w", err)
+			}
+			defer st.Close()
+		}
+	}
 
 	tokenizer := analyzer.NewTokenizer(cfg.Index.Stemming)
 
@@ -251,4 +281,37 @@ func setupHybridRetrieval(st *store.BoltStore, cfg *config.Config) (port.Embedde
 	}
 
 	return embedder, vectorStore, nil
+}
+
+func askYesNo(prompt string) bool {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf("%s [y/N]: ", prompt)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		return false
+	}
+	response = strings.TrimSpace(strings.ToLower(response))
+	return response == "y" || response == "yes"
+}
+
+func checkForChanges(st *store.BoltStore) []string {
+	docs, err := st.ListDocs()
+	if err != nil {
+		return nil
+	}
+
+	var changed []string
+	for _, doc := range docs {
+		info, err := os.Stat(doc.Path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				changed = append(changed, doc.Path+" (deleted)")
+			}
+			continue
+		}
+		if info.ModTime().Unix() > doc.ModTime.Unix() {
+			changed = append(changed, doc.Path)
+		}
+	}
+	return changed
 }
