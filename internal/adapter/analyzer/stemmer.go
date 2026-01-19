@@ -4,15 +4,12 @@ import (
 	"strings"
 )
 
-// PorterStemmer implements the Porter stemming algorithm.
 type PorterStemmer struct{}
 
-// NewPorterStemmer creates a new Porter stemmer.
 func NewPorterStemmer() *PorterStemmer {
 	return &PorterStemmer{}
 }
 
-// Stem returns the stem of a word using the Porter algorithm.
 func (p *PorterStemmer) Stem(word string) string {
 	if len(word) < 3 {
 		return word

@@ -8,17 +8,15 @@ import (
 	"rag/internal/port"
 )
 
-// HybridRetriever combines BM25 lexical search with vector similarity search.
 type HybridRetriever struct {
 	bm25        *BM25Retriever
 	vectorStore port.VectorStore
 	embedder    port.Embedder
 	chunkStore  *store.BoltStore
-	rrfK        int     // RRF constant (typically 60)
-	bm25Weight  float64 // Weight for BM25 results (0-1)
+	rrfK        int
+	bm25Weight  float64
 }
 
-// NewHybridRetriever creates a new hybrid retriever.
 func NewHybridRetriever(
 	bm25 *BM25Retriever,
 	vectorStore port.VectorStore,
@@ -44,7 +42,6 @@ func NewHybridRetriever(
 	}
 }
 
-// Search performs hybrid search combining BM25 and vector similarity.
 func (r *HybridRetriever) Search(query string, k int) ([]domain.ScoredChunk, error) {
 
 	if r.vectorStore == nil || r.embedder == nil {
@@ -77,7 +74,6 @@ func (r *HybridRetriever) Search(query string, k int) ([]domain.ScoredChunk, err
 	return fused, nil
 }
 
-// vectorSearch performs vector similarity search.
 func (r *HybridRetriever) vectorSearch(query string, k int) ([]domain.ScoredChunk, error) {
 
 	embeddings, err := r.embedder.Embed([]string{query})
@@ -108,13 +104,10 @@ func (r *HybridRetriever) vectorSearch(query string, k int) ([]domain.ScoredChun
 	return chunks, nil
 }
 
-// vectorOnlySearch performs search using only vectors.
 func (r *HybridRetriever) vectorOnlySearch(query string, k int) ([]domain.ScoredChunk, error) {
 	return r.vectorSearch(query, k)
 }
 
-// rrfFuse combines results using Reciprocal Rank Fusion.
-// RRF score = Σ 1/(k + rank) for each result list where the document appears.
 func (r *HybridRetriever) rrfFuse(bm25Results, vectorResults []domain.ScoredChunk) []domain.ScoredChunk {
 	rrfScores := make(map[string]float64)
 	chunkMap := make(map[string]domain.Chunk)

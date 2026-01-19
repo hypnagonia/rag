@@ -26,7 +26,7 @@ func main() {
 }
 
 func helper() {
-    // some helper function
+    
     return
 }`
 

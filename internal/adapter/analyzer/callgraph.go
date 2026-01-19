@@ -9,13 +9,11 @@ import (
 	"rag/internal/domain"
 )
 
-// CallGraphBuilder builds call relationships between functions.
 type CallGraphBuilder struct {
-	symbols     map[string]domain.Symbol // name -> symbol mapping for resolution
-	symbolsByID map[string]domain.Symbol // id -> symbol
+	symbols     map[string]domain.Symbol
+	symbolsByID map[string]domain.Symbol
 }
 
-// NewCallGraphBuilder creates a new call graph builder.
 func NewCallGraphBuilder() *CallGraphBuilder {
 	return &CallGraphBuilder{
 		symbols:     make(map[string]domain.Symbol),
@@ -23,7 +21,6 @@ func NewCallGraphBuilder() *CallGraphBuilder {
 	}
 }
 
-// RegisterSymbols registers symbols for call resolution.
 func (b *CallGraphBuilder) RegisterSymbols(symbols []domain.Symbol) {
 	for _, sym := range symbols {
 		b.symbolsByID[sym.ID] = sym
@@ -34,7 +31,6 @@ func (b *CallGraphBuilder) RegisterSymbols(symbols []domain.Symbol) {
 	}
 }
 
-// BuildCallGraph builds the call graph for a Go file.
 func (b *CallGraphBuilder) BuildCallGraph(docID, content string) ([]domain.CallGraphEntry, error) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "", content, 0)
@@ -44,7 +40,6 @@ func (b *CallGraphBuilder) BuildCallGraph(docID, content string) ([]domain.CallG
 
 	var entries []domain.CallGraphEntry
 
-	// Map to track current function being analyzed
 	var currentFunc *domain.Symbol
 
 	ast.Inspect(file, func(n ast.Node) bool {
@@ -105,7 +100,6 @@ func (b *CallGraphBuilder) BuildCallGraph(docID, content string) ([]domain.CallG
 	return entries, nil
 }
 
-// extractCalleeName extracts the name of the called function/method.
 func extractCalleeName(expr ast.Expr) string {
 	switch e := expr.(type) {
 	case *ast.Ident:
@@ -122,7 +116,6 @@ func extractCalleeName(expr ast.Expr) string {
 	}
 }
 
-// GetCallers returns all functions that call the given symbol.
 func (b *CallGraphBuilder) GetCallers(entries []domain.CallGraphEntry, symbolID string) []domain.Symbol {
 	var callers []domain.Symbol
 	seen := make(map[string]bool)
@@ -141,7 +134,6 @@ func (b *CallGraphBuilder) GetCallers(entries []domain.CallGraphEntry, symbolID 
 	return callers
 }
 
-// GetCallees returns all functions called by the given symbol.
 func (b *CallGraphBuilder) GetCallees(entries []domain.CallGraphEntry, symbolID string) []domain.Symbol {
 	var callees []domain.Symbol
 	seen := make(map[string]bool)
@@ -160,7 +152,6 @@ func (b *CallGraphBuilder) GetCallees(entries []domain.CallGraphEntry, symbolID 
 	return callees
 }
 
-// BuildChunkMetadata enriches chunk metadata with call graph information.
 func (b *CallGraphBuilder) BuildChunkMetadata(
 	chunk domain.Chunk,
 	symbols []domain.Symbol,
@@ -168,7 +159,6 @@ func (b *CallGraphBuilder) BuildChunkMetadata(
 ) domain.ChunkMetadata {
 	meta := domain.ChunkMetadata{}
 
-	// Find symbols in this chunk
 	var chunkSymbols []domain.Symbol
 	for _, sym := range symbols {
 		if sym.DocID == chunk.DocID && sym.Line >= chunk.StartLine && sym.Line <= chunk.EndLine {
@@ -213,7 +203,6 @@ func (b *CallGraphBuilder) BuildChunkMetadata(
 	return meta
 }
 
-// extractImportPaths extracts import paths from text.
 func extractImportPaths(text string) []string {
 	var imports []string
 	lines := strings.Split(text, "\n")
@@ -241,7 +230,6 @@ func extractImportPaths(text string) []string {
 	return imports
 }
 
-// extractSingleImport extracts an import path from a single line.
 func extractSingleImport(line string) string {
 	line = strings.TrimPrefix(line, "import ")
 	line = strings.TrimSpace(line)

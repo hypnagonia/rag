@@ -9,14 +9,13 @@ import (
 	"rag/internal/domain"
 )
 
-// QueryCache provides caching for search queries with LRU eviction and TTL.
 type QueryCache struct {
 	mu       sync.RWMutex
 	entries  map[string]*cacheEntry
-	order    []string // For LRU tracking
+	order    []string
 	maxSize  int
 	ttl      time.Duration
-	indexGen uint64 // Generation counter to invalidate on re-index
+	indexGen uint64
 }
 
 type cacheEntry struct {
@@ -25,7 +24,6 @@ type cacheEntry struct {
 	indexGen  uint64
 }
 
-// NewQueryCache creates a new query cache.
 func NewQueryCache(maxSize int, ttl time.Duration) *QueryCache {
 	if maxSize <= 0 {
 		maxSize = 100
@@ -41,7 +39,6 @@ func NewQueryCache(maxSize int, ttl time.Duration) *QueryCache {
 	}
 }
 
-// cacheKey generates a cache key from query and parameters.
 func cacheKey(query string, topK int) string {
 	data := []byte(query)
 	data = append(data, byte(topK>>8), byte(topK))
@@ -49,7 +46,6 @@ func cacheKey(query string, topK int) string {
 	return hex.EncodeToString(hash[:16])
 }
 
-// Get retrieves cached results for a query.
 func (c *QueryCache) Get(query string, topK int) ([]domain.ScoredChunk, bool) {
 	c.mu.RLock()
 	key := cacheKey(query, topK)
@@ -84,7 +80,6 @@ func (c *QueryCache) Get(query string, topK int) ([]domain.ScoredChunk, bool) {
 	return entry.results, true
 }
 
-// Put stores results in the cache.
 func (c *QueryCache) Put(query string, topK int, results []domain.ScoredChunk) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -114,7 +109,6 @@ func (c *QueryCache) Put(query string, topK int, results []domain.ScoredChunk) {
 	c.order = append(c.order, key)
 }
 
-// Invalidate clears all cached queries (call after re-indexing).
 func (c *QueryCache) Invalidate() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -124,14 +118,12 @@ func (c *QueryCache) Invalidate() {
 	c.indexGen++
 }
 
-// Size returns the current number of cached entries.
 func (c *QueryCache) Size() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return len(c.entries)
 }
 
-// evictOldest removes the oldest entry (must be called with lock held).
 func (c *QueryCache) evictOldest() {
 	if len(c.order) == 0 {
 		return
@@ -141,13 +133,11 @@ func (c *QueryCache) evictOldest() {
 	delete(c.entries, oldest)
 }
 
-// moveToEnd moves a key to the end of the LRU order (must be called with lock held).
 func (c *QueryCache) moveToEnd(key string) {
 	c.removeFromOrder(key)
 	c.order = append(c.order, key)
 }
 
-// removeFromOrder removes a key from the order slice (must be called with lock held).
 func (c *QueryCache) removeFromOrder(key string) {
 	for i, k := range c.order {
 		if k == key {
@@ -157,18 +147,15 @@ func (c *QueryCache) removeFromOrder(key string) {
 	}
 }
 
-// CachedRetriever wraps a retriever with caching.
 type CachedRetriever struct {
 	retriever Retriever
 	cache     *QueryCache
 }
 
-// Retriever interface for search operations.
 type Retriever interface {
 	Search(query string, k int) ([]domain.ScoredChunk, error)
 }
 
-// NewCachedRetriever creates a new cached retriever.
 func NewCachedRetriever(retriever Retriever, cache *QueryCache) *CachedRetriever {
 	return &CachedRetriever{
 		retriever: retriever,
@@ -176,7 +163,6 @@ func NewCachedRetriever(retriever Retriever, cache *QueryCache) *CachedRetriever
 	}
 }
 
-// Search performs a cached search.
 func (r *CachedRetriever) Search(query string, k int) ([]domain.ScoredChunk, error) {
 
 	if results, hit := r.cache.Get(query, k); hit {

@@ -7,18 +7,14 @@ import (
 	"rag/internal/port"
 )
 
-// QueryExpander expands queries using an LLM to generate related search terms.
 type QueryExpander struct {
 	llm port.LLM
 }
 
-// NewQueryExpander creates a new query expander.
 func NewQueryExpander(llm port.LLM) *QueryExpander {
 	return &QueryExpander{llm: llm}
 }
 
-// Expand generates expanded queries for better retrieval coverage.
-// Returns the original query plus generated variants.
 func (e *QueryExpander) Expand(query string) ([]string, error) {
 	if e.llm == nil {
 		return []string{query}, nil
@@ -63,8 +59,6 @@ Output ONLY the alternative queries, one per line. Do not include explanations o
 	return queries, nil
 }
 
-// ExpandWithKeywords generates additional keyword-based expansions.
-// This is a simpler, non-LLM approach for when LLM is unavailable.
 func (e *QueryExpander) ExpandWithKeywords(query string) []string {
 	queries := []string{query}
 

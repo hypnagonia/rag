@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-// OpenAIEmbedder generates embeddings using OpenAI-compatible APIs.
 type OpenAIEmbedder struct {
 	apiKey    string
 	model     string
@@ -19,7 +18,6 @@ type OpenAIEmbedder struct {
 	client    *http.Client
 }
 
-// OpenAI API request/response types
 type embeddingRequest struct {
 	Input []string `json:"input"`
 	Model string   `json:"model"`
@@ -46,26 +44,18 @@ type apiError struct {
 	Type    string `json:"type"`
 }
 
-// NewOpenAIEmbedder creates a new OpenAI embedder.
-// apiKeyEnv is the environment variable name containing the API key.
-// model is the embedding model to use (e.g., "text-embedding-3-small").
 func NewOpenAIEmbedder(apiKeyEnv, model string) (*OpenAIEmbedder, error) {
 	return NewOpenAICompatibleEmbedder(apiKeyEnv, model, "https://api.openai.com/v1")
 }
 
-// NewDeepSeekEmbedder creates a new DeepSeek embedder.
 func NewDeepSeekEmbedder(apiKeyEnv, model string) (*OpenAIEmbedder, error) {
 	return NewOpenAICompatibleEmbedder(apiKeyEnv, model, "https://api.deepseek.com/v1")
 }
 
-// NewJinaEmbedder creates a new Jina AI embedder.
-// Free tier: 10M tokens, signup required.
 func NewJinaEmbedder(apiKeyEnv, model string) (*OpenAIEmbedder, error) {
 	return NewOpenAICompatibleEmbedder(apiKeyEnv, model, "https://api.jina.ai/v1")
 }
 
-// NewOllamaEmbedder creates a new Ollama local embedder.
-// Requires Ollama running locally. No API key needed.
 func NewOllamaEmbedder(model, baseURL string) (*OpenAIEmbedder, error) {
 	if baseURL == "" {
 		baseURL = "http://localhost:11434/v1"
@@ -92,7 +82,6 @@ func NewOllamaEmbedder(model, baseURL string) (*OpenAIEmbedder, error) {
 	}, nil
 }
 
-// NewOpenAICompatibleEmbedder creates an embedder for any OpenAI-compatible API.
 func NewOpenAICompatibleEmbedder(apiKeyEnv, model, baseURL string) (*OpenAIEmbedder, error) {
 	apiKey := os.Getenv(apiKeyEnv)
 	if apiKey == "" {
@@ -125,13 +114,11 @@ func NewOpenAICompatibleEmbedder(apiKeyEnv, model, baseURL string) (*OpenAIEmbed
 	}, nil
 }
 
-// Embed generates embeddings for the given texts.
 func (e *OpenAIEmbedder) Embed(texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, nil
 	}
 
-	// Batch texts to avoid API limits (max 2048 inputs)
 	const maxBatch = 100
 	var allEmbeddings [][]float32
 
@@ -152,7 +139,6 @@ func (e *OpenAIEmbedder) Embed(texts []string) ([][]float32, error) {
 	return allEmbeddings, nil
 }
 
-// embedBatch embeds a single batch of texts.
 func (e *OpenAIEmbedder) embedBatch(texts []string) ([][]float32, error) {
 	reqBody := embeddingRequest{
 		Input: texts,
@@ -210,27 +196,22 @@ func (e *OpenAIEmbedder) embedBatch(texts []string) ([][]float32, error) {
 	return embeddings, nil
 }
 
-// Dimension returns the embedding vector dimension.
 func (e *OpenAIEmbedder) Dimension() int {
 	return e.dimension
 }
 
-// ModelName returns the name of the embedding model.
 func (e *OpenAIEmbedder) ModelName() string {
 	return e.model
 }
 
-// MockEmbedder is a mock embedder for testing.
 type MockEmbedder struct {
 	dimension int
 }
 
-// NewMockEmbedder creates a new mock embedder.
 func NewMockEmbedder(dimension int) *MockEmbedder {
 	return &MockEmbedder{dimension: dimension}
 }
 
-// Embed generates mock embeddings (zeros).
 func (e *MockEmbedder) Embed(texts []string) ([][]float32, error) {
 	embeddings := make([][]float32, len(texts))
 	for i := range texts {
@@ -245,12 +226,10 @@ func (e *MockEmbedder) Embed(texts []string) ([][]float32, error) {
 	return embeddings, nil
 }
 
-// Dimension returns the embedding dimension.
 func (e *MockEmbedder) Dimension() int {
 	return e.dimension
 }
 
-// ModelName returns the model name.
 func (e *MockEmbedder) ModelName() string {
 	return "mock"
 }

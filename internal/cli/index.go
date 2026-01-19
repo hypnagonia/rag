@@ -90,7 +90,6 @@ func runIndex(cmd *cobra.Command, args []string) error {
 
 	walker := fs.NewWalker(cfg.Index.Includes, cfg.Index.Excludes)
 
-	// Create chunker (use composite chunker if AST chunking is enabled)
 	var chk port.Chunker
 	if cfg.Index.ASTChunking {
 		chk = chunker.NewCompositeChunker(cfg.Index.ChunkTokens, cfg.Index.ChunkOverlap, tokenizer, true)
@@ -102,7 +101,6 @@ func runIndex(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Scanning %s...\n", path)
 
-	// Create progress bar (will be initialized once we know total files)
 	var bar *progressbar.ProgressBar
 	var barMu sync.Mutex
 	var startTime time.Time
@@ -156,7 +154,6 @@ func runIndex(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to update schema info: %w", err)
 	}
 
-	// Generate embeddings if enabled
 	var embeddingsGenerated int
 	fmt.Printf("\nEmbedding config: enabled=%v, provider=%s, model=%s\n", cfg.Embedding.Enabled, cfg.Embedding.Provider, cfg.Embedding.Model)
 	if cfg.Embedding.Enabled {
@@ -186,9 +183,8 @@ func runIndex(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// generateEmbeddings generates vector embeddings for all chunks.
 func generateEmbeddings(st *store.BoltStore, cfg *config.Config) (int, error) {
-	// Create embedder based on config
+
 	var embedder port.Embedder
 	var err error
 
@@ -297,7 +293,6 @@ func generateEmbeddings(st *store.BoltStore, cfg *config.Config) (int, error) {
 	return generated, nil
 }
 
-// formatDuration formats a duration in a human-readable way.
 func formatDuration(d time.Duration) string {
 	if d < time.Second {
 		return "<1s"

@@ -10,14 +10,12 @@ import (
 	"rag/internal/domain"
 )
 
-// LineChunker splits documents into line-based chunks with token awareness.
 type LineChunker struct {
 	maxTokens int
 	overlap   int
 	tokenizer *analyzer.Tokenizer
 }
 
-// NewLineChunker creates a new line-based chunker.
 func NewLineChunker(maxTokens, overlap int, tokenizer *analyzer.Tokenizer) *LineChunker {
 	return &LineChunker{
 		maxTokens: maxTokens,
@@ -26,7 +24,6 @@ func NewLineChunker(maxTokens, overlap int, tokenizer *analyzer.Tokenizer) *Line
 	}
 }
 
-// Chunk splits a document's content into chunks.
 func (c *LineChunker) Chunk(doc domain.Document, content string) ([]domain.Chunk, error) {
 	lines := strings.Split(content, "\n")
 	if len(lines) == 0 {
@@ -94,7 +91,6 @@ func (c *LineChunker) Chunk(doc domain.Document, content string) ([]domain.Chunk
 	return chunks, nil
 }
 
-// calculateOverlapLines determines how many lines to overlap based on token count.
 func (c *LineChunker) calculateOverlapLines(lines []string, start, end int) int {
 	if c.overlap == 0 {
 		return 0
@@ -111,7 +107,6 @@ func (c *LineChunker) calculateOverlapLines(lines []string, start, end int) int 
 	return overlapLines
 }
 
-// generateChunkID creates a unique ID for a chunk.
 func generateChunkID(docID string, startLine, endLine int) string {
 	data := fmt.Sprintf("%s:%d-%d", docID, startLine, endLine)
 	hash := sha256.Sum256([]byte(data))

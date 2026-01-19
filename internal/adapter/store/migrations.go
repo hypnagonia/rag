@@ -10,8 +10,6 @@ import (
 	"rag/config"
 )
 
-// CurrentSchemaVersion is the current schema version.
-// Increment this when making breaking changes to the storage format.
 const CurrentSchemaVersion = 2
 
 var (
@@ -19,13 +17,11 @@ var (
 	keyConfigHash    = []byte("config_hash")
 )
 
-// SchemaInfo stores schema version and configuration hash.
 type SchemaInfo struct {
 	Version    int    `json:"version"`
 	ConfigHash string `json:"config_hash"`
 }
 
-// GetSchemaInfo retrieves the current schema info from the database.
 func (s *BoltStore) GetSchemaInfo() (*SchemaInfo, error) {
 	var info SchemaInfo
 	err := s.db.View(func(tx *bbolt.Tx) error {
@@ -52,7 +48,6 @@ func (s *BoltStore) GetSchemaInfo() (*SchemaInfo, error) {
 	return &info, err
 }
 
-// SetSchemaInfo stores the schema info in the database.
 func (s *BoltStore) SetSchemaInfo(info *SchemaInfo) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketStats)
@@ -69,8 +64,6 @@ func (s *BoltStore) SetSchemaInfo(info *SchemaInfo) error {
 	})
 }
 
-// ComputeConfigHash computes a hash of index-relevant configuration.
-// Changes to this hash indicate the index should be rebuilt.
 func ComputeConfigHash(cfg *config.Config) string {
 
 	relevant := struct {
@@ -100,7 +93,6 @@ func ComputeConfigHash(cfg *config.Config) string {
 	return hex.EncodeToString(hash[:8])
 }
 
-// MigrationResult describes the result of a migration check.
 type MigrationResult struct {
 	NeedsMigration bool
 	NeedsRebuild   bool
@@ -109,7 +101,6 @@ type MigrationResult struct {
 	Reason         string
 }
 
-// CheckMigration checks if migration or rebuild is needed.
 func (s *BoltStore) CheckMigration(cfg *config.Config) (*MigrationResult, error) {
 	info, err := s.GetSchemaInfo()
 	if err != nil {
@@ -145,7 +136,6 @@ func (s *BoltStore) CheckMigration(cfg *config.Config) (*MigrationResult, error)
 	return result, nil
 }
 
-// Migrate performs any necessary schema migrations.
 func (s *BoltStore) Migrate(cfg *config.Config) error {
 	info, err := s.GetSchemaInfo()
 	if err != nil {
@@ -165,7 +155,6 @@ func (s *BoltStore) Migrate(cfg *config.Config) error {
 	return s.SetSchemaInfo(newInfo)
 }
 
-// runMigration runs a specific version migration.
 func (s *BoltStore) runMigration(from, to int) error {
 	switch {
 	case from == 0 && to == 1:
@@ -183,7 +172,6 @@ func (s *BoltStore) runMigration(from, to int) error {
 	}
 }
 
-// Clear removes all data from the database (for rebuild).
 func (s *BoltStore) Clear() error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		buckets := [][]byte{bucketDocs, bucketChunks, bucketBlobs, bucketTerms, bucketDocChunks}
@@ -218,7 +206,6 @@ func (s *BoltStore) Clear() error {
 	})
 }
 
-// NeedsRebuild checks if the index needs a full rebuild due to config changes.
 func (s *BoltStore) NeedsRebuild(cfg *config.Config) (bool, string, error) {
 	result, err := s.CheckMigration(cfg)
 	if err != nil {

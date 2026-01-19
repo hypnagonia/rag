@@ -5,14 +5,12 @@ import (
 	"unicode"
 )
 
-// Tokenizer splits text into tokens with optional stemming and stopword removal.
 type Tokenizer struct {
 	stemmer   *PorterStemmer
 	stopwords map[string]struct{}
 	useStem   bool
 }
 
-// NewTokenizer creates a new Tokenizer.
 func NewTokenizer(useStemming bool) *Tokenizer {
 	var stemmer *PorterStemmer
 	if useStemming {
@@ -25,7 +23,6 @@ func NewTokenizer(useStemming bool) *Tokenizer {
 	}
 }
 
-// Tokenize splits text into tokens.
 func (t *Tokenizer) Tokenize(text string) []string {
 	words := splitWords(text)
 	tokens := make([]string, 0, len(words))
@@ -47,8 +44,6 @@ func (t *Tokenizer) Tokenize(text string) []string {
 	return tokens
 }
 
-// CountTokens returns an approximate token count for LLM budget estimation.
-// Uses a simple heuristic: ~4 characters per token on average.
 func (t *Tokenizer) CountTokens(text string) int {
 
 	words := splitWords(text)
@@ -59,7 +54,6 @@ func (t *Tokenizer) CountTokens(text string) int {
 	return int(float64(len(words)) * 1.3)
 }
 
-// splitWords splits text into words using unicode word boundaries.
 func splitWords(text string) []string {
 	var words []string
 	var current strings.Builder
@@ -81,7 +75,6 @@ func splitWords(text string) []string {
 	return words
 }
 
-// defaultStopwords returns a set of common English stopwords.
 func defaultStopwords() map[string]struct{} {
 	stops := []string{
 		"a", "an", "and", "are", "as", "at", "be", "by", "for",

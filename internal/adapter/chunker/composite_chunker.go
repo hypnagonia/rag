@@ -9,17 +9,15 @@ import (
 	"rag/internal/domain"
 )
 
-// CompositeChunker routes to language-specific parsers or falls back to line-based chunking.
 type CompositeChunker struct {
 	parsers   map[string]LanguageParser
 	fallback  *LineChunker
 	tokenizer *analyzer.Tokenizer
 	maxTokens int
 	overlap   int
-	useAST    bool // Can be disabled via config
+	useAST    bool
 }
 
-// NewCompositeChunker creates a new composite chunker.
 func NewCompositeChunker(maxTokens, overlap int, tokenizer *analyzer.Tokenizer, useAST bool) *CompositeChunker {
 	parsers := make(map[string]LanguageParser)
 
@@ -36,7 +34,6 @@ func NewCompositeChunker(maxTokens, overlap int, tokenizer *analyzer.Tokenizer, 
 	}
 }
 
-// Chunk splits a document's content into chunks.
 func (c *CompositeChunker) Chunk(doc domain.Document, content string) ([]domain.Chunk, error) {
 
 	if !c.useAST {
@@ -61,7 +58,6 @@ func (c *CompositeChunker) Chunk(doc domain.Document, content string) ([]domain.
 	return c.unitsToChunks(doc, units, content)
 }
 
-// unitsToChunks converts code units to domain chunks.
 func (c *CompositeChunker) unitsToChunks(doc domain.Document, units []CodeUnit, content string) ([]domain.Chunk, error) {
 	var chunks []domain.Chunk
 
@@ -83,7 +79,6 @@ func (c *CompositeChunker) unitsToChunks(doc domain.Document, units []CodeUnit, 
 	return chunks, nil
 }
 
-// createChunk creates a domain.Chunk from a CodeUnit.
 func (c *CompositeChunker) createChunk(doc domain.Document, unit CodeUnit) domain.Chunk {
 	tokens := c.tokenizer.Tokenize(unit.Content)
 
@@ -103,7 +98,6 @@ func (c *CompositeChunker) createChunk(doc domain.Document, unit CodeUnit) domai
 	}
 }
 
-// splitLargeUnit splits a large code unit into smaller chunks.
 func (c *CompositeChunker) splitLargeUnit(doc domain.Document, unit CodeUnit) []domain.Chunk {
 	var chunks []domain.Chunk
 
@@ -163,7 +157,6 @@ func (c *CompositeChunker) splitLargeUnit(doc domain.Document, unit CodeUnit) []
 			currentEnd = currentStart + 1
 		}
 
-		// Build chunk content
 		var chunkContent string
 		if header != "" {
 			chunkContent = header + "\n"
@@ -208,7 +201,6 @@ func (c *CompositeChunker) splitLargeUnit(doc domain.Document, unit CodeUnit) []
 	return chunks
 }
 
-// calculateOverlapForBody calculates overlap lines for body content.
 func (c *CompositeChunker) calculateOverlapForBody(lines []string, start, end int) int {
 	if c.overlap == 0 {
 		return 0
@@ -225,14 +217,12 @@ func (c *CompositeChunker) calculateOverlapForBody(lines []string, start, end in
 	return overlapLines
 }
 
-// generateASTChunkID creates a unique ID for an AST-based chunk.
 func generateASTChunkID(docID, unitType, unitName string, startLine int) string {
 	data := fmt.Sprintf("%s:%s:%s:%d", docID, unitType, unitName, startLine)
 	hash := sha256.Sum256([]byte(data))
 	return hex.EncodeToString(hash[:8])
 }
 
-// splitIntoLines splits content into lines.
 func splitIntoLines(content string) []string {
 	var lines []string
 	start := 0
@@ -248,7 +238,6 @@ func splitIntoLines(content string) []string {
 	return lines
 }
 
-// containsBrace checks if a line contains an opening brace.
 func containsBrace(line string) bool {
 	for _, c := range line {
 		if c == '{' {

@@ -66,7 +66,6 @@ func runQuery(cmd *cobra.Command, args []string) error {
 	bm25 := retriever.NewBM25Retriever(st, tokenizer, cfg.Index.K1, cfg.Index.B, cfg.Retrieve.PathBoostWeight)
 	mmr := retriever.NewMMRReranker(cfg.Retrieve.MMRLambda, cfg.Retrieve.DedupJaccard)
 
-	// Check if hybrid retrieval is enabled and set up
 	var searchRetriever port.Retriever = bm25
 	if cfg.Retrieve.HybridEnabled && cfg.Embedding.Enabled {
 		embedder, vectorStore, err := setupHybridRetrieval(st, cfg)
@@ -87,7 +86,6 @@ func runQuery(cmd *cobra.Command, args []string) error {
 		topK = queryTopK
 	}
 
-	// Execute search
 	var chunks []domain.ScoredChunk
 	if queryNoMMR {
 		chunks, err = retrieveUC.RetrieveWithoutMMR(queryText, topK)
@@ -98,7 +96,6 @@ func runQuery(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("search failed: %w", err)
 	}
 
-	// Build results with optional context expansion
 	var results []usecase.ScoredChunkResult
 	for _, c := range chunks {
 		doc, _ := st.GetDoc(c.Chunk.DocID)
@@ -148,7 +145,6 @@ func runQuery(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// expandContext reads additional lines from the source file around the chunk.
 func expandContext(path string, startLine, endLine, extraLines int) (newStart, newEnd int, text string, err error) {
 	if extraLines <= 0 {
 		return startLine, endLine, "", nil
@@ -202,7 +198,6 @@ func joinLines(lines []string) string {
 	return result
 }
 
-// setupHybridRetrieval creates the embedder and vector store for hybrid search.
 func setupHybridRetrieval(st *store.BoltStore, cfg *config.Config) (port.Embedder, port.VectorStore, error) {
 	var embedder port.Embedder
 	var err error

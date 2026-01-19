@@ -8,16 +8,14 @@ import (
 	"rag/internal/domain"
 )
 
-// ContextExpander expands search results with related context.
 type ContextExpander struct {
 	store             *store.BoltStore
 	includeImports    bool
 	includeTests      bool
 	includeInterfaces bool
-	maxExpansion      int // Max chunks to add per result
+	maxExpansion      int
 }
 
-// NewContextExpander creates a new context expander.
 func NewContextExpander(store *store.BoltStore, includeImports, includeTests, includeInterfaces bool) *ContextExpander {
 	return &ContextExpander{
 		store:             store,
@@ -28,7 +26,6 @@ func NewContextExpander(store *store.BoltStore, includeImports, includeTests, in
 	}
 }
 
-// Expand adds related context to search results.
 func (e *ContextExpander) Expand(results []domain.ScoredChunk) ([]domain.ScoredChunk, error) {
 	if len(results) == 0 {
 		return results, nil
@@ -92,7 +89,6 @@ func (e *ContextExpander) Expand(results []domain.ScoredChunk) ([]domain.ScoredC
 	return expanded, nil
 }
 
-// findRelatedDocs finds documents related to the given document.
 func (e *ContextExpander) findRelatedDocs(doc domain.Document, seenDocs map[string]domain.Document) []domain.Document {
 	related := make([]domain.Document, 0)
 
@@ -122,7 +118,6 @@ func (e *ContextExpander) findRelatedDocs(doc domain.Document, seenDocs map[stri
 	return related
 }
 
-// isRelated determines if two documents are related.
 func (e *ContextExpander) isRelated(original, candidate domain.Document, baseName, dir string) bool {
 	candidateBase := filepath.Base(candidate.Path)
 	candidateBaseNoExt := strings.TrimSuffix(candidateBase, filepath.Ext(candidateBase))
@@ -173,7 +168,6 @@ func (e *ContextExpander) isRelated(original, candidate domain.Document, baseNam
 	return false
 }
 
-// isTestFile checks if a path is a test file.
 func isTestFile(path string) bool {
 	base := filepath.Base(path)
 	ext := filepath.Ext(path)
@@ -196,8 +190,6 @@ func isTestFile(path string) bool {
 		strings.Contains(path, "/__tests__/")
 }
 
-// ExpandWithImports expands results by following import statements.
-// This is a more sophisticated expansion that parses imports from chunks.
 func (e *ContextExpander) ExpandWithImports(results []domain.ScoredChunk) ([]domain.ScoredChunk, error) {
 
 	expanded, err := e.Expand(results)
@@ -247,7 +239,6 @@ func (e *ContextExpander) ExpandWithImports(results []domain.ScoredChunk) ([]dom
 	return expanded, nil
 }
 
-// extractImports extracts import paths from chunk texts.
 func extractImports(chunks []domain.ScoredChunk) []string {
 	imports := make([]string, 0)
 	seen := make(map[string]bool)
@@ -281,7 +272,6 @@ func extractImports(chunks []domain.ScoredChunk) []string {
 	return imports
 }
 
-// extractImportPath extracts the import path from an import line.
 func extractImportPath(line string) string {
 
 	line = strings.TrimPrefix(line, "import ")
@@ -307,7 +297,6 @@ func extractImportPath(line string) string {
 	return importPart
 }
 
-// matchesImport checks if a file path matches an import path.
 func matchesImport(filePath, importPath string) bool {
 
 	filePath = strings.ReplaceAll(filePath, "\\", "/")

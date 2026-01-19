@@ -11,7 +11,6 @@ import (
 	"rag/internal/domain"
 )
 
-// BM25Retriever implements BM25 scoring for retrieval.
 type BM25Retriever struct {
 	store           *store.BoltStore
 	tokenizer       *analyzer.Tokenizer
@@ -20,7 +19,6 @@ type BM25Retriever struct {
 	pathBoostWeight float64
 }
 
-// NewBM25Retriever creates a new BM25 retriever.
 func NewBM25Retriever(store *store.BoltStore, tokenizer *analyzer.Tokenizer, k1, b, pathBoostWeight float64) *BM25Retriever {
 	return &BM25Retriever{
 		store:           store,
@@ -31,7 +29,6 @@ func NewBM25Retriever(store *store.BoltStore, tokenizer *analyzer.Tokenizer, k1,
 	}
 }
 
-// Search finds chunks matching the query using BM25 scoring.
 func (r *BM25Retriever) Search(query string, k int) ([]domain.ScoredChunk, error) {
 	queryTokens := r.tokenizer.Tokenize(query)
 	if len(queryTokens) == 0 {
@@ -126,8 +123,6 @@ func (r *BM25Retriever) Search(query string, k int) ([]domain.ScoredChunk, error
 	return results, nil
 }
 
-// calculatePathBoost calculates a boost factor based on how many query tokens
-// match tokens in the file path. Returns a value between 0 and 1.
 func (r *BM25Retriever) calculatePathBoost(path string, queryTokenSet map[string]struct{}) float64 {
 	pathTokens := tokenizePath(path)
 	if len(pathTokens) == 0 || len(queryTokenSet) == 0 {
@@ -144,13 +139,10 @@ func (r *BM25Retriever) calculatePathBoost(path string, queryTokenSet map[string
 	return float64(matches) / float64(len(queryTokenSet))
 }
 
-// tokenizePath splits a file path into searchable tokens.
-// e.g., "internal/adapter/retriever/bm25.go" -> ["internal", "adapter", "retriever", "bm25", "go"]
 func tokenizePath(path string) []string {
 
 	path = strings.TrimPrefix(path, "/")
 
-	// Split by path separator and dots
 	var tokens []string
 	parts := strings.Split(path, string(filepath.Separator))
 	for _, part := range parts {
@@ -171,7 +163,6 @@ func tokenizePath(path string) []string {
 	return tokens
 }
 
-// ComputeBM25Score computes BM25 score for a single chunk against query tokens.
 func ComputeBM25Score(queryTokens []string, chunk domain.Chunk, stats domain.Stats, k1, b float64) float64 {
 
 	chunkTF := make(map[string]int)

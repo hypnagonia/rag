@@ -17,7 +17,6 @@ import (
 	"rag/internal/port"
 )
 
-// IndexUseCase handles file indexing operations.
 type IndexUseCase struct {
 	store     *store.BoltStore
 	walker    *fs.Walker
@@ -26,7 +25,6 @@ type IndexUseCase struct {
 	workers   int
 }
 
-// NewIndexUseCase creates a new index use case.
 func NewIndexUseCase(
 	store *store.BoltStore,
 	walker *fs.Walker,
@@ -46,7 +44,6 @@ func NewIndexUseCase(
 	}
 }
 
-// IndexResult contains the results of an indexing operation.
 type IndexResult struct {
 	FilesIndexed  int
 	FilesSkipped  int
@@ -55,10 +52,8 @@ type IndexResult struct {
 	Errors        []string
 }
 
-// ProgressCallback is called to report indexing progress.
 type ProgressCallback func(processed, total int, currentFile string)
 
-// Index indexes files in the given directory.
 func (u *IndexUseCase) Index(root string, progress ProgressCallback) (*IndexResult, error) {
 	result := &IndexResult{}
 
@@ -79,7 +74,6 @@ func (u *IndexUseCase) Index(root string, progress ProgressCallback) (*IndexResu
 
 	seenPaths := make(map[string]bool)
 
-	// Separate files into those needing indexing and those to skip
 	var filesToIndex []fs.FileInfo
 	var skippedDocs []domain.Document
 
@@ -110,7 +104,6 @@ func (u *IndexUseCase) Index(root string, progress ProgressCallback) (*IndexResu
 		}
 	}
 
-	// Count existing chunks for stats
 	var existingChunkLen int64
 	var existingChunkCount int64
 	for _, doc := range skippedDocs {
@@ -149,7 +142,6 @@ func (u *IndexUseCase) Index(root string, progress ProgressCallback) (*IndexResu
 	return result, nil
 }
 
-// processedFile holds the result of processing a single file.
 type processedFile struct {
 	file     store.IndexedFile
 	err      error
@@ -157,7 +149,6 @@ type processedFile struct {
 	chunkLen int
 }
 
-// indexFilesParallel indexes files using parallel workers and batch writes.
 func (u *IndexUseCase) indexFilesParallel(files []fs.FileInfo, progress ProgressCallback) (indexed, chunkCount, chunkLen int, errors []string) {
 	totalFiles := len(files)
 	var processed int64
@@ -165,7 +156,6 @@ func (u *IndexUseCase) indexFilesParallel(files []fs.FileInfo, progress Progress
 	jobs := make(chan fs.FileInfo, len(files))
 	results := make(chan processedFile, len(files))
 
-	// Start workers
 	var wg sync.WaitGroup
 	for i := 0; i < u.workers; i++ {
 		wg.Add(1)
@@ -195,7 +185,6 @@ func (u *IndexUseCase) indexFilesParallel(files []fs.FileInfo, progress Progress
 		close(results)
 	}()
 
-	// Collect results and batch write
 	const batchSize = 50
 	batch := make([]store.IndexedFile, 0, batchSize)
 
@@ -227,7 +216,6 @@ func (u *IndexUseCase) indexFilesParallel(files []fs.FileInfo, progress Progress
 	return
 }
 
-// processFile processes a single file and returns the indexed data.
 func (u *IndexUseCase) processFile(file fs.FileInfo) processedFile {
 	result := processedFile{path: file.Path}
 
@@ -278,7 +266,6 @@ func (u *IndexUseCase) processFile(file fs.FileInfo) processedFile {
 	return result
 }
 
-// deleteDocument deletes a document and all its associated data.
 func (u *IndexUseCase) deleteDocument(docID string) error {
 
 	chunks, err := u.store.GetChunksByDoc(docID)
@@ -307,13 +294,11 @@ func (u *IndexUseCase) deleteDocument(docID string) error {
 	return u.store.DeleteDoc(docID)
 }
 
-// generateDocID creates a unique ID for a document based on its path.
 func generateDocID(path string) string {
 	hash := sha256.Sum256([]byte(path))
 	return hex.EncodeToString(hash[:8])
 }
 
-// detectLanguage detects the programming language based on file extension.
 func detectLanguage(path string) string {
 	ext := filepath.Ext(path)
 	switch ext {

@@ -14,14 +14,12 @@ import (
 	"rag/internal/port"
 )
 
-// CohereReranker implements cross-encoder reranking using Cohere's API.
 type CohereReranker struct {
 	apiKey string
 	model  string
 	client *http.Client
 }
 
-// Cohere API types
 type cohereRerankRequest struct {
 	Query     string   `json:"query"`
 	Documents []string `json:"documents"`
@@ -38,7 +36,6 @@ type cohereRerankResult struct {
 	RelevanceScore float64 `json:"relevance_score"`
 }
 
-// NewCohereReranker creates a new Cohere reranker.
 func NewCohereReranker(apiKeyEnv, model string) (*CohereReranker, error) {
 	apiKey := os.Getenv(apiKeyEnv)
 	if apiKey == "" {
@@ -58,13 +55,11 @@ func NewCohereReranker(apiKeyEnv, model string) (*CohereReranker, error) {
 	}, nil
 }
 
-// Rerank scores and reorders documents based on query relevance.
 func (r *CohereReranker) Rerank(query string, documents []string) ([]port.RerankedResult, error) {
 	if len(documents) == 0 {
 		return nil, nil
 	}
 
-	// Cohere has a limit of 1000 documents per request
 	const maxDocs = 1000
 	if len(documents) > maxDocs {
 		documents = documents[:maxDocs]
@@ -124,19 +119,16 @@ func (r *CohereReranker) Rerank(query string, documents []string) ([]port.Rerank
 	return results, nil
 }
 
-// ModelName returns the model name.
 func (r *CohereReranker) ModelName() string {
 	return r.model
 }
 
-// RerankedRetriever wraps a retriever and applies reranking to results.
 type RerankedRetriever struct {
 	retriever port.Retriever
 	reranker  port.Reranker
-	topK      int // How many to rerank (should be > final k)
+	topK      int
 }
 
-// NewRerankedRetriever creates a new reranked retriever.
 func NewRerankedRetriever(retriever port.Retriever, reranker port.Reranker, topK int) *RerankedRetriever {
 	if topK <= 0 {
 		topK = 50
@@ -148,7 +140,6 @@ func NewRerankedRetriever(retriever port.Retriever, reranker port.Reranker, topK
 	}
 }
 
-// Search retrieves candidates and reranks them.
 func (r *RerankedRetriever) Search(query string, k int) ([]domain.ScoredChunk, error) {
 
 	candidates, err := r.retriever.Search(query, r.topK)
@@ -195,15 +186,12 @@ func (r *RerankedRetriever) Search(query string, k int) ([]domain.ScoredChunk, e
 	return results, nil
 }
 
-// SimpleReranker provides a simple TF-based reranking when no external reranker is available.
 type SimpleReranker struct{}
 
-// NewSimpleReranker creates a new simple reranker.
 func NewSimpleReranker() *SimpleReranker {
 	return &SimpleReranker{}
 }
 
-// Rerank performs simple term frequency-based reranking.
 func (r *SimpleReranker) Rerank(query string, documents []string) ([]port.RerankedResult, error) {
 	queryTerms := tokenizeSimple(query)
 	if len(queryTerms) == 0 {
@@ -231,12 +219,10 @@ func (r *SimpleReranker) Rerank(query string, documents []string) ([]port.Rerank
 	return results, nil
 }
 
-// ModelName returns the model name.
 func (r *SimpleReranker) ModelName() string {
 	return "simple-tf"
 }
 
-// tokenizeSimple performs basic tokenization.
 func tokenizeSimple(text string) map[string]int {
 	terms := make(map[string]int)
 	word := ""
@@ -256,7 +242,6 @@ func tokenizeSimple(text string) map[string]int {
 	return terms
 }
 
-// calculateTermOverlap calculates overlap between query terms and document.
 func calculateTermOverlap(queryTerms map[string]int, doc string) float64 {
 	docTerms := tokenizeSimple(doc)
 	if len(docTerms) == 0 {

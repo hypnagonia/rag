@@ -7,7 +7,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config holds all configuration for the RAG tool.
 type Config struct {
 	Index     IndexConfig     `yaml:"index"`
 	Retrieve  RetrieveConfig  `yaml:"retrieve"`
@@ -16,18 +15,16 @@ type Config struct {
 	Logging   LoggingConfig   `yaml:"logging"`
 }
 
-// EmbeddingConfig holds embedding configuration.
 type EmbeddingConfig struct {
 	Enabled   bool   `yaml:"enabled"`
-	Provider  string `yaml:"provider"`    // "openai", "jina", "ollama", "mock"
-	Model     string `yaml:"model"`       // e.g., "text-embedding-3-small"
-	APIKeyEnv string `yaml:"api_key_env"` // Environment variable for API key
-	BaseURL   string `yaml:"base_url"`    // Custom base URL (for ollama or self-hosted)
+	Provider  string `yaml:"provider"`
+	Model     string `yaml:"model"`
+	APIKeyEnv string `yaml:"api_key_env"`
+	BaseURL   string `yaml:"base_url"`
 	Dimension int    `yaml:"dimension"`
 	BatchSize int    `yaml:"batch_size"`
 }
 
-// IndexConfig holds indexing configuration.
 type IndexConfig struct {
 	Includes     []string `yaml:"includes"`
 	Excludes     []string `yaml:"excludes"`
@@ -40,7 +37,6 @@ type IndexConfig struct {
 	ASTChunking  bool     `yaml:"ast_chunking"`
 }
 
-// RetrieveConfig holds retrieval configuration.
 type RetrieveConfig struct {
 	TopK              int     `yaml:"top_k"`
 	MMRLambda         float64 `yaml:"mmr_lambda"`
@@ -49,10 +45,9 @@ type RetrieveConfig struct {
 	HybridEnabled     bool    `yaml:"hybrid_enabled"`
 	RRFK              int     `yaml:"rrf_k"`
 	BM25Weight        float64 `yaml:"bm25_weight"`
-	MinScoreThreshold float64 `yaml:"min_score_threshold"` // Filter results below this score (0 = disabled)
+	MinScoreThreshold float64 `yaml:"min_score_threshold"`
 }
 
-// PackConfig holds context packing configuration.
 type PackConfig struct {
 	TokenBudget  int     `yaml:"token_budget"`
 	RecencyBoost float64 `yaml:"recency_boost"`
@@ -60,17 +55,15 @@ type PackConfig struct {
 	Output       string  `yaml:"output"`
 }
 
-// LoggingConfig holds logging configuration.
 type LoggingConfig struct {
 	Level string `yaml:"level"`
 }
 
-// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		Index: IndexConfig{
-			Includes:     []string{"**/*.go", "**/*.py", "**/*.js", "**/*.ts", "**/*.java", "**/*.c", "**/*.cpp", "**/*.h", "**/*.rs", "**/*.md", "**/*.txt", "**/*_test.go", "**/test_*.py", "**/*_test.py", "**/*.test.js", "**/*.test.ts", "**/*.spec.js", "**/*.spec.ts", "**/*Test.java"},
-			Excludes:     []string{"**/node_modules/**", "**/vendor/**", "**/.git/**", "**/dist/**", "**/build/**", "**/__pycache__/**", "**/*.min.js"},
+			Includes:     []string{"***.py", "**/*.js", "**/*.ts", "**/*.java", "**/*.c", "**/*.cpp", "**/*.h", "**/*.rs", "**/*.md", "**/*.txt", "**/*_test.go", "**/test_*.py", "**/*_test.py", "**/*.test.js", "**/*.test.ts", "**/*.spec.js", "**/*.spec.ts", "**/*Test.java"},
+			Excludes:     []string{"**/node_modulesvendor/**", "**/.git/**", "**/dist/**", "**/build/**", "**/__pycache__/**", "**/*.min.js"},
 			Language:     "auto",
 			Stemming:     true,
 			ChunkTokens:  512,
@@ -108,7 +101,6 @@ func DefaultConfig() *Config {
 	}
 }
 
-// Load loads configuration from a YAML file.
 func Load(path string) (*Config, error) {
 	cfg := DefaultConfig()
 
@@ -127,7 +119,6 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// LoadFromDir loads configuration from a directory (looks for rag.yaml).
 func LoadFromDir(dir string) (*Config, error) {
 
 	path := filepath.Join(dir, "rag.yaml")
@@ -143,7 +134,6 @@ func LoadFromDir(dir string) (*Config, error) {
 	return DefaultConfig(), nil
 }
 
-// Save saves configuration to a YAML file.
 func (c *Config) Save(path string) error {
 	data, err := yaml.Marshal(c)
 	if err != nil {
@@ -152,12 +142,10 @@ func (c *Config) Save(path string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// IndexDBPath returns the path to the index database.
 func IndexDBPath(dir string) string {
 	return filepath.Join(dir, ".rag", "index.db")
 }
 
-// EnsureRAGDir ensures the .rag directory exists.
 func EnsureRAGDir(dir string) error {
 	ragDir := filepath.Join(dir, ".rag")
 	return os.MkdirAll(ragDir, 0755)

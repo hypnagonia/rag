@@ -5,15 +5,13 @@ import (
 	"strings"
 )
 
-// CommentBlock represents an extracted comment from source code.
 type CommentBlock struct {
 	Text      string
 	StartLine int
 	EndLine   int
-	Type      string // "line", "block", "doc"
+	Type      string
 }
 
-// CommentExtractor extracts comments from source code based on language.
 type CommentExtractor struct {
 	patterns map[string]languageCommentPatterns
 }
@@ -25,7 +23,6 @@ type languageCommentPatterns struct {
 	docComment  *regexp.Regexp
 }
 
-// NewCommentExtractor creates a new comment extractor.
 func NewCommentExtractor() *CommentExtractor {
 	return &CommentExtractor{
 		patterns: map[string]languageCommentPatterns{
@@ -93,7 +90,6 @@ func NewCommentExtractor() *CommentExtractor {
 	}
 }
 
-// Extract extracts comments from source code.
 func (e *CommentExtractor) Extract(content string, lang string) []CommentBlock {
 	patterns, ok := e.patterns[lang]
 	if !ok {
@@ -180,7 +176,6 @@ func (e *CommentExtractor) Extract(content string, lang string) []CommentBlock {
 	return mergeConsecutiveComments(comments)
 }
 
-// extractBetween extracts text between start and end patterns.
 func extractBetween(line string, start, end *regexp.Regexp) string {
 	startIdx := start.FindStringIndex(line)
 	endIdx := end.FindStringIndex(line)
@@ -190,7 +185,6 @@ func extractBetween(line string, start, end *regexp.Regexp) string {
 	return strings.TrimSpace(line[startIdx[1]:endIdx[0]])
 }
 
-// mergeConsecutiveComments merges consecutive line comments into single blocks.
 func mergeConsecutiveComments(comments []CommentBlock) []CommentBlock {
 	if len(comments) <= 1 {
 		return comments
@@ -208,7 +202,6 @@ func mergeConsecutiveComments(comments []CommentBlock) []CommentBlock {
 			continue
 		}
 
-		// Try to merge consecutive line comments
 		var textBuilder strings.Builder
 		textBuilder.WriteString(current.Text)
 		endLine := current.EndLine
@@ -239,8 +232,6 @@ func mergeConsecutiveComments(comments []CommentBlock) []CommentBlock {
 	return merged
 }
 
-// ExtractCommentTokens extracts and tokenizes comments from source code.
-// Returns a map of token -> frequency for comment-specific terms.
 func (e *CommentExtractor) ExtractCommentTokens(content string, lang string, tokenizer *Tokenizer) map[string]int {
 	comments := e.Extract(content, lang)
 	tokenFreq := make(map[string]int)

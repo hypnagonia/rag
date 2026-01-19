@@ -10,14 +10,12 @@ import (
 	"rag/internal/domain"
 )
 
-// PackUseCase handles context packing operations.
 type PackUseCase struct {
 	store        *store.BoltStore
 	tokenizer    *analyzer.Tokenizer
 	recencyBoost float64
 }
 
-// NewPackUseCase creates a new pack use case.
 func NewPackUseCase(store *store.BoltStore, tokenizer *analyzer.Tokenizer, recencyBoost float64) *PackUseCase {
 	return &PackUseCase{
 		store:        store,
@@ -26,7 +24,6 @@ func NewPackUseCase(store *store.BoltStore, tokenizer *analyzer.Tokenizer, recen
 	}
 }
 
-// Pack packs scored chunks into a context that fits the token budget.
 func (u *PackUseCase) Pack(query string, chunks []domain.ScoredChunk, budget int) (domain.PackedContext, error) {
 	if len(chunks) == 0 {
 		return domain.PackedContext{
@@ -37,14 +34,12 @@ func (u *PackUseCase) Pack(query string, chunks []domain.ScoredChunk, budget int
 		}, nil
 	}
 
-	// Calculate utility for each chunk: score * recency_factor / tokens
 	type rankedChunk struct {
 		chunk   domain.ScoredChunk
 		utility float64
 		tokens  int
 	}
 
-	// Find the most recent modification time for recency calculation
 	var maxModTime time.Time
 	docModTimes := make(map[string]time.Time)
 	if u.recencyBoost > 0 {
@@ -143,7 +138,6 @@ func (u *PackUseCase) Pack(query string, chunks []domain.ScoredChunk, budget int
 	}, nil
 }
 
-// mergeAdjacentChunks merges adjacent chunks from the same document.
 func (u *PackUseCase) mergeAdjacentChunks(chunks []domain.ScoredChunk) []domain.ScoredChunk {
 	if len(chunks) <= 1 {
 		return chunks

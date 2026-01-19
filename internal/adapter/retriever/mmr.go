@@ -4,13 +4,11 @@ import (
 	"rag/internal/domain"
 )
 
-// MMRReranker implements Maximal Marginal Relevance for result diversification.
 type MMRReranker struct {
 	lambda       float64
 	dedupJaccard float64
 }
 
-// NewMMRReranker creates a new MMR reranker.
 func NewMMRReranker(lambda, dedupJaccard float64) *MMRReranker {
 	return &MMRReranker{
 		lambda:       lambda,
@@ -18,8 +16,6 @@ func NewMMRReranker(lambda, dedupJaccard float64) *MMRReranker {
 	}
 }
 
-// Rerank applies MMR to diversify the results.
-// MMR(c) = λ * relevance(c) - (1-λ) * max_similarity(c, selected)
 func (r *MMRReranker) Rerank(candidates []domain.ScoredChunk, k int) []domain.ScoredChunk {
 	if len(candidates) == 0 {
 		return nil
@@ -84,7 +80,6 @@ func (r *MMRReranker) Rerank(candidates []domain.ScoredChunk, k int) []domain.Sc
 	return selected
 }
 
-// jaccardSimilarity computes the Jaccard similarity between two token sets.
 func jaccardSimilarity(a, b []string) float64 {
 	if len(a) == 0 && len(b) == 0 {
 		return 1.0
@@ -118,7 +113,6 @@ func jaccardSimilarity(a, b []string) float64 {
 	return float64(intersection) / float64(union)
 }
 
-// JaccardSimilarity is exported for testing.
 func JaccardSimilarity(a, b []string) float64 {
 	return jaccardSimilarity(a, b)
 }

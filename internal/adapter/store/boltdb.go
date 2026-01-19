@@ -16,19 +16,17 @@ var (
 	bucketBlobs      = []byte("blobs")
 	bucketTerms      = []byte("terms")
 	bucketStats      = []byte("stats")
-	bucketDocChunks  = []byte("doc_chunks")  // docID -> []chunkID mapping
-	bucketSymbols    = []byte("symbols")     // symbolID -> Symbol
-	bucketDocSymbols = []byte("doc_symbols") // docID -> []symbolID mapping
-	bucketCallGraph  = []byte("callgraph")   // callerID -> []CallGraphEntry
+	bucketDocChunks  = []byte("doc_chunks")
+	bucketSymbols    = []byte("symbols")
+	bucketDocSymbols = []byte("doc_symbols")
+	bucketCallGraph  = []byte("callgraph")
 	keyStats         = []byte("corpus_stats")
 )
 
-// BoltStore implements IndexStore using BoltDB.
 type BoltStore struct {
 	db *bbolt.DB
 }
 
-// NewBoltStore creates a new BoltDB-backed store.
 func NewBoltStore(path string) (*BoltStore, error) {
 	db, err := bbolt.Open(path, 0600, nil)
 	if err != nil {
@@ -52,19 +50,16 @@ func NewBoltStore(path string) (*BoltStore, error) {
 	return &BoltStore{db: db}, nil
 }
 
-// DB returns the underlying BoltDB instance.
 func (s *BoltStore) DB() *bbolt.DB {
 	return s.db
 }
 
-// docMeta is the stored document metadata.
 type docMeta struct {
 	Path    string `json:"path"`
 	ModTime int64  `json:"mod_time"`
 	Lang    string `json:"lang"`
 }
 
-// chunkMeta is the stored chunk metadata.
 type chunkMeta struct {
 	DocID     string   `json:"doc_id"`
 	StartLine int      `json:"start_line"`
@@ -72,7 +67,6 @@ type chunkMeta struct {
 	Tokens    []string `json:"tokens"`
 }
 
-// PutDoc stores a document.
 func (s *BoltStore) PutDoc(doc domain.Document) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		meta := docMeta{
@@ -88,7 +82,6 @@ func (s *BoltStore) PutDoc(doc domain.Document) error {
 	})
 }
 
-// GetDoc retrieves a document by ID.
 func (s *BoltStore) GetDoc(id string) (domain.Document, error) {
 	var doc domain.Document
 	err := s.db.View(func(tx *bbolt.Tx) error {
@@ -111,14 +104,12 @@ func (s *BoltStore) GetDoc(id string) (domain.Document, error) {
 	return doc, err
 }
 
-// DeleteDoc deletes a document.
 func (s *BoltStore) DeleteDoc(id string) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		return tx.Bucket(bucketDocs).Delete([]byte(id))
 	})
 }
 
-// ListDocs lists all documents.
 func (s *BoltStore) ListDocs() ([]domain.Document, error) {
 	var docs []domain.Document
 	err := s.db.View(func(tx *bbolt.Tx) error {
@@ -140,7 +131,6 @@ func (s *BoltStore) ListDocs() ([]domain.Document, error) {
 	return docs, err
 }
 
-// PutChunk stores a chunk.
 func (s *BoltStore) PutChunk(chunk domain.Chunk) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 
@@ -173,7 +163,6 @@ func (s *BoltStore) PutChunk(chunk domain.Chunk) error {
 	})
 }
 
-// GetChunk retrieves a chunk by ID.
 func (s *BoltStore) GetChunk(id string) (domain.Chunk, error) {
 	var chunk domain.Chunk
 	err := s.db.View(func(tx *bbolt.Tx) error {
@@ -199,7 +188,6 @@ func (s *BoltStore) GetChunk(id string) (domain.Chunk, error) {
 	return chunk, err
 }
 
-// GetChunksByDoc retrieves all chunks for a document.
 func (s *BoltStore) GetChunksByDoc(docID string) ([]domain.Chunk, error) {
 	var chunks []domain.Chunk
 	err := s.db.View(func(tx *bbolt.Tx) error {
@@ -238,7 +226,6 @@ func (s *BoltStore) GetChunksByDoc(docID string) ([]domain.Chunk, error) {
 	return chunks, err
 }
 
-// DeleteChunksByDoc deletes all chunks for a document.
 func (s *BoltStore) DeleteChunksByDoc(docID string) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		docChunks := tx.Bucket(bucketDocChunks)
@@ -260,7 +247,6 @@ func (s *BoltStore) DeleteChunksByDoc(docID string) error {
 	})
 }
 
-// PutPosting adds a term posting.
 func (s *BoltStore) PutPosting(term string, chunkID string, tf int) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketTerms)
@@ -288,7 +274,6 @@ func (s *BoltStore) PutPosting(term string, chunkID string, tf int) error {
 	})
 }
 
-// GetPostings retrieves all postings for a term.
 func (s *BoltStore) GetPostings(term string) ([]domain.Posting, error) {
 	var postings []domain.Posting
 	err := s.db.View(func(tx *bbolt.Tx) error {
@@ -301,7 +286,6 @@ func (s *BoltStore) GetPostings(term string) ([]domain.Posting, error) {
 	return postings, err
 }
 
-// DeletePostings deletes postings for a chunk from given terms.
 func (s *BoltStore) DeletePostings(chunkID string, terms []string) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketTerms)
@@ -332,7 +316,6 @@ func (s *BoltStore) DeletePostings(chunkID string, terms []string) error {
 	})
 }
 
-// GetStats retrieves corpus statistics.
 func (s *BoltStore) GetStats() (domain.Stats, error) {
 	var stats domain.Stats
 	err := s.db.View(func(tx *bbolt.Tx) error {
@@ -345,7 +328,6 @@ func (s *BoltStore) GetStats() (domain.Stats, error) {
 	return stats, err
 }
 
-// UpdateStats updates corpus statistics.
 func (s *BoltStore) UpdateStats(stats domain.Stats) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		data, err := json.Marshal(stats)
@@ -356,12 +338,10 @@ func (s *BoltStore) UpdateStats(stats domain.Stats) error {
 	})
 }
 
-// Close closes the store.
 func (s *BoltStore) Close() error {
 	return s.db.Close()
 }
 
-// AllTerms returns all terms in the index (for iteration).
 func (s *BoltStore) AllTerms() ([]string, error) {
 	var terms []string
 	err := s.db.View(func(tx *bbolt.Tx) error {
@@ -374,14 +354,12 @@ func (s *BoltStore) AllTerms() ([]string, error) {
 	return terms, err
 }
 
-// IndexedFile represents a file to be indexed in a batch.
 type IndexedFile struct {
 	Doc      domain.Document
 	Chunks   []domain.Chunk
-	Postings map[string]map[string]int // term -> chunkID -> tf
+	Postings map[string]map[string]int
 }
 
-// BatchIndex indexes multiple files in a single transaction for better performance.
 func (s *BoltStore) BatchIndex(files []IndexedFile) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		docsBucket := tx.Bucket(bucketDocs)
@@ -462,7 +440,6 @@ func (s *BoltStore) BatchIndex(files []IndexedFile) error {
 	})
 }
 
-// PutSymbols stores symbols for a document.
 func (s *BoltStore) PutSymbols(docID string, symbols []domain.Symbol) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		symbolBucket := tx.Bucket(bucketSymbols)
@@ -488,7 +465,6 @@ func (s *BoltStore) PutSymbols(docID string, symbols []domain.Symbol) error {
 	})
 }
 
-// GetSymbol retrieves a symbol by ID.
 func (s *BoltStore) GetSymbol(id string) (domain.Symbol, error) {
 	var sym domain.Symbol
 	err := s.db.View(func(tx *bbolt.Tx) error {
@@ -501,7 +477,6 @@ func (s *BoltStore) GetSymbol(id string) (domain.Symbol, error) {
 	return sym, err
 }
 
-// GetSymbolsByDoc retrieves all symbols for a document.
 func (s *BoltStore) GetSymbolsByDoc(docID string) ([]domain.Symbol, error) {
 	var symbols []domain.Symbol
 	err := s.db.View(func(tx *bbolt.Tx) error {
@@ -528,7 +503,6 @@ func (s *BoltStore) GetSymbolsByDoc(docID string) ([]domain.Symbol, error) {
 	return symbols, err
 }
 
-// DeleteSymbolsByDoc deletes all symbols for a document.
 func (s *BoltStore) DeleteSymbolsByDoc(docID string) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		docSymbolsBucket := tx.Bucket(bucketDocSymbols)
@@ -548,7 +522,6 @@ func (s *BoltStore) DeleteSymbolsByDoc(docID string) error {
 	})
 }
 
-// PutCallGraph stores call graph entries for a document.
 func (s *BoltStore) PutCallGraph(docID string, entries []domain.CallGraphEntry) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketCallGraph)
@@ -560,7 +533,6 @@ func (s *BoltStore) PutCallGraph(docID string, entries []domain.CallGraphEntry) 
 	})
 }
 
-// GetCallGraph retrieves call graph entries for a document.
 func (s *BoltStore) GetCallGraph(docID string) ([]domain.CallGraphEntry, error) {
 	var entries []domain.CallGraphEntry
 	err := s.db.View(func(tx *bbolt.Tx) error {
@@ -573,14 +545,12 @@ func (s *BoltStore) GetCallGraph(docID string) ([]domain.CallGraphEntry, error) 
 	return entries, err
 }
 
-// DeleteCallGraph deletes call graph entries for a document.
 func (s *BoltStore) DeleteCallGraph(docID string) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		return tx.Bucket(bucketCallGraph).Delete([]byte(docID))
 	})
 }
 
-// GetAllSymbols retrieves all symbols in the index.
 func (s *BoltStore) GetAllSymbols() ([]domain.Symbol, error) {
 	var symbols []domain.Symbol
 	err := s.db.View(func(tx *bbolt.Tx) error {
@@ -597,7 +567,6 @@ func (s *BoltStore) GetAllSymbols() ([]domain.Symbol, error) {
 	return symbols, err
 }
 
-// SearchSymbols searches for symbols by name.
 func (s *BoltStore) SearchSymbols(query string) ([]domain.Symbol, error) {
 	all, err := s.GetAllSymbols()
 	if err != nil {

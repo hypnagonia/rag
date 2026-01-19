@@ -12,15 +12,12 @@ import (
 	"rag/internal/domain"
 )
 
-// SymbolExtractor extracts symbols from source code.
 type SymbolExtractor struct{}
 
-// NewSymbolExtractor creates a new symbol extractor.
 func NewSymbolExtractor() *SymbolExtractor {
 	return &SymbolExtractor{}
 }
 
-// ExtractSymbols extracts symbols from source code based on language.
 func (e *SymbolExtractor) ExtractSymbols(docID, content, lang string) ([]domain.Symbol, error) {
 	switch lang {
 	case "go":
@@ -31,7 +28,6 @@ func (e *SymbolExtractor) ExtractSymbols(docID, content, lang string) ([]domain.
 	}
 }
 
-// extractGoSymbols extracts symbols from Go source code using AST.
 func (e *SymbolExtractor) extractGoSymbols(docID, content string) ([]domain.Symbol, error) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "", content, parser.ParseComments)
@@ -111,7 +107,6 @@ func (e *SymbolExtractor) extractGoSymbols(docID, content string) ([]domain.Symb
 	return symbols, nil
 }
 
-// extractSimpleSymbols extracts symbols using simple pattern matching.
 func (e *SymbolExtractor) extractSimpleSymbols(docID, content, lang string) ([]domain.Symbol, error) {
 	var symbols []domain.Symbol
 	lines := strings.Split(content, "\n")
@@ -140,7 +135,6 @@ func (e *SymbolExtractor) extractSimpleSymbols(docID, content, lang string) ([]d
 	return symbols, nil
 }
 
-// symbolPattern defines a pattern for matching symbols.
 type symbolPattern struct {
 	prefix  string
 	symType string
@@ -154,7 +148,6 @@ func (p *symbolPattern) match(line string) string {
 	return p.extract(line)
 }
 
-// getLanguagePatterns returns symbol patterns for a language.
 func getLanguagePatterns(lang string) []symbolPattern {
 	switch lang {
 	case "python":
@@ -265,7 +258,6 @@ func extractJavaInterface(line string) string {
 	return strings.TrimSpace(line)
 }
 
-// formatReceiver formats the receiver type for a method.
 func formatReceiver(expr ast.Expr) string {
 	switch t := expr.(type) {
 	case *ast.StarExpr:
@@ -278,7 +270,6 @@ func formatReceiver(expr ast.Expr) string {
 	return ""
 }
 
-// formatFuncSignature formats a function signature.
 func formatFuncSignature(fn *ast.FuncDecl, recvType string) string {
 	var sig strings.Builder
 	sig.WriteString("func ")
@@ -325,7 +316,6 @@ func formatFuncSignature(fn *ast.FuncDecl, recvType string) string {
 	return sig.String()
 }
 
-// formatType formats a type expression as a string.
 func formatType(expr ast.Expr) string {
 	switch t := expr.(type) {
 	case *ast.Ident:
@@ -352,7 +342,6 @@ func formatType(expr ast.Expr) string {
 	}
 }
 
-// generateSymbolID generates a unique ID for a symbol.
 func generateSymbolID(docID, name string, line int) string {
 	data := fmt.Sprintf("%s:%s:%d", docID, name, line)
 	hash := sha256.Sum256([]byte(data))

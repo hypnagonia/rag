@@ -9,20 +9,16 @@ import (
 	"strings"
 )
 
-// GoParser parses Go source code into CodeUnits.
 type GoParser struct{}
 
-// NewGoParser creates a new Go parser.
 func NewGoParser() *GoParser {
 	return &GoParser{}
 }
 
-// Language returns the language this parser handles.
 func (p *GoParser) Language() string {
 	return "go"
 }
 
-// Parse parses Go source code and returns code units.
 func (p *GoParser) Parse(content string) ([]CodeUnit, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "", content, parser.ParseComments)
@@ -49,12 +45,10 @@ func (p *GoParser) Parse(content string) ([]CodeUnit, error) {
 	return units, nil
 }
 
-// extractFunction extracts a function/method declaration.
 func (p *GoParser) extractFunction(fset *token.FileSet, fn *ast.FuncDecl, lines []string) CodeUnit {
 	startPos := fset.Position(fn.Pos())
 	endPos := fset.Position(fn.End())
 
-	// Build signature
 	var sig strings.Builder
 	sig.WriteString("func ")
 	if fn.Recv != nil && len(fn.Recv.List) > 0 {
@@ -105,7 +99,6 @@ func (p *GoParser) extractFunction(fset *token.FileSet, fn *ast.FuncDecl, lines 
 	}
 }
 
-// extractGenDecl extracts type, const, var, or import declarations.
 func (p *GoParser) extractGenDecl(fset *token.FileSet, decl *ast.GenDecl, lines []string) []CodeUnit {
 	var units []CodeUnit
 
@@ -214,7 +207,6 @@ func (p *GoParser) extractGenDecl(fset *token.FileSet, decl *ast.GenDecl, lines 
 	return units
 }
 
-// formatFieldList formats a field list (parameters, results, receiver).
 func (p *GoParser) formatFieldList(fl *ast.FieldList) string {
 	if fl == nil || len(fl.List) == 0 {
 		return ""
@@ -236,14 +228,12 @@ func (p *GoParser) formatFieldList(fl *ast.FieldList) string {
 	return strings.Join(parts, ", ")
 }
 
-// formatExpr formats an expression to string.
 func (p *GoParser) formatExpr(expr ast.Expr) string {
 	var buf bytes.Buffer
 	format.Node(&buf, token.NewFileSet(), expr)
 	return buf.String()
 }
 
-// formatTypeSignature creates a signature for a type declaration.
 func (p *GoParser) formatTypeSignature(ts *ast.TypeSpec) string {
 	var sig strings.Builder
 	sig.WriteString("type ")
@@ -264,7 +254,6 @@ func (p *GoParser) formatTypeSignature(ts *ast.TypeSpec) string {
 	return sig.String()
 }
 
-// extractStructFields extracts field info from a struct.
 func (p *GoParser) extractStructFields(st *ast.StructType) []CodeUnit {
 	var children []CodeUnit
 	if st.Fields == nil {
@@ -291,7 +280,6 @@ func (p *GoParser) extractStructFields(st *ast.StructType) []CodeUnit {
 	return children
 }
 
-// extractInterfaceMethods extracts method signatures from an interface.
 func (p *GoParser) extractInterfaceMethods(it *ast.InterfaceType) []CodeUnit {
 	var children []CodeUnit
 	if it.Methods == nil {
@@ -326,7 +314,6 @@ func (p *GoParser) extractInterfaceMethods(it *ast.InterfaceType) []CodeUnit {
 	return children
 }
 
-// extractCalls extracts function call names from a function body.
 func (p *GoParser) extractCalls(body *ast.BlockStmt) []string {
 	if body == nil {
 		return nil
@@ -349,7 +336,6 @@ func (p *GoParser) extractCalls(body *ast.BlockStmt) []string {
 	return calls
 }
 
-// extractCallName extracts the function name from a call expression.
 func (p *GoParser) extractCallName(expr ast.Expr) string {
 	switch e := expr.(type) {
 	case *ast.Ident:
@@ -365,7 +351,6 @@ func (p *GoParser) extractCallName(expr ast.Expr) string {
 	}
 }
 
-// extractLines extracts lines from a slice (1-indexed, inclusive).
 func extractLines(lines []string, startLine, endLine int) string {
 	if startLine < 1 {
 		startLine = 1

@@ -14,7 +14,6 @@ var (
 	rootDir string
 )
 
-// rootCmd represents the base command
 var rootCmd = &cobra.Command{
 	Use:   "rag",
 	Short: "RAG Context Compressor - Index and retrieve code for LLM consumption",
@@ -49,7 +48,6 @@ Example usage:
 	},
 }
 
-// Execute runs the root command.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -61,12 +59,10 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&rootDir, "dir", "d", "", "root directory (default is current directory)")
 }
 
-// GetConfig returns the loaded configuration.
 func GetConfig() *config.Config {
 	return cfg
 }
 
-// GetRootDir returns the root directory.
 func GetRootDir() string {
 	return rootDir
 }

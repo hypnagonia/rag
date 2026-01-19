@@ -15,13 +15,11 @@ var (
 	bucketVectors = []byte("vectors")
 )
 
-// BoltVectorStore implements VectorStore using BoltDB for persistence.
-// Uses brute-force search for simplicity; can be replaced with HNSW for larger indexes.
 type BoltVectorStore struct {
 	db        *bbolt.DB
 	dimension int
 	mu        sync.RWMutex
-	// In-memory cache for fast search
+
 	vectors map[string]vectorEntry
 }
 
@@ -35,7 +33,6 @@ type storedVector struct {
 	Metadata map[string]string `json:"m,omitempty"`
 }
 
-// NewBoltVectorStore creates a new BoltDB-backed vector store.
 func NewBoltVectorStore(db *bbolt.DB, dimension int) (*BoltVectorStore, error) {
 
 	err := db.Update(func(tx *bbolt.Tx) error {
@@ -59,7 +56,6 @@ func NewBoltVectorStore(db *bbolt.DB, dimension int) (*BoltVectorStore, error) {
 	return store, nil
 }
 
-// loadVectors loads all vectors from BoltDB into memory.
 func (s *BoltVectorStore) loadVectors() error {
 	return s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketVectors)
@@ -81,7 +77,6 @@ func (s *BoltVectorStore) loadVectors() error {
 	})
 }
 
-// Upsert adds or updates vectors in the store.
 func (s *BoltVectorStore) Upsert(items []port.VectorItem) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -120,7 +115,6 @@ func (s *BoltVectorStore) Upsert(items []port.VectorItem) error {
 	})
 }
 
-// Search finds the k nearest vectors to the query using cosine similarity.
 func (s *BoltVectorStore) Search(query []float32, k int) ([]port.VectorResult, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -133,7 +127,6 @@ func (s *BoltVectorStore) Search(query []float32, k int) ([]port.VectorResult, e
 		return nil, nil
 	}
 
-	// Calculate similarity for all vectors (brute force)
 	type scored struct {
 		id       string
 		score    float64
@@ -170,7 +163,6 @@ func (s *BoltVectorStore) Search(query []float32, k int) ([]port.VectorResult, e
 	return results, nil
 }
 
-// Delete removes vectors by their IDs.
 func (s *BoltVectorStore) Delete(ids []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -192,14 +184,12 @@ func (s *BoltVectorStore) Delete(ids []string) error {
 	})
 }
 
-// Count returns the number of vectors in the store.
 func (s *BoltVectorStore) Count() (int, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.vectors), nil
 }
 
-// cosineSimilarity calculates the cosine similarity between two vectors.
 func cosineSimilarity(a, b []float32) float64 {
 	if len(a) != len(b) {
 		return 0

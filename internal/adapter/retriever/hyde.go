@@ -8,9 +8,6 @@ import (
 	"rag/internal/port"
 )
 
-// HyDERetriever implements Hypothetical Document Embeddings retrieval.
-// It generates a hypothetical answer to the query, embeds it, and searches
-// for similar actual documents. This often improves retrieval for questions.
 type HyDERetriever struct {
 	llm         port.LLM
 	embedder    port.Embedder
@@ -18,7 +15,6 @@ type HyDERetriever struct {
 	chunkStore  *store.BoltStore
 }
 
-// NewHyDERetriever creates a new HyDE retriever.
 func NewHyDERetriever(
 	llm port.LLM,
 	embedder port.Embedder,
@@ -33,7 +29,6 @@ func NewHyDERetriever(
 	}
 }
 
-// Search performs HyDE retrieval.
 func (r *HyDERetriever) Search(query string, k int) ([]domain.ScoredChunk, error) {
 	if r.llm == nil || r.embedder == nil || r.vectorStore == nil {
 		return nil, fmt.Errorf("HyDE requires LLM, embedder, and vector store")
@@ -72,7 +67,6 @@ func (r *HyDERetriever) Search(query string, k int) ([]domain.ScoredChunk, error
 	return chunks, nil
 }
 
-// generateHypothetical generates a hypothetical document that would answer the query.
 func (r *HyDERetriever) generateHypothetical(query string) (string, error) {
 	systemPrompt := `You are a code documentation assistant. Given a question about code,
 write a short code snippet or documentation excerpt that would answer the question.
@@ -84,7 +78,6 @@ Keep it concise (100-200 words max). Do not explain - just write the hypothetica
 	return r.llm.GenerateWithSystem(systemPrompt, userPrompt)
 }
 
-// SearchWithFallback performs HyDE search with fallback to regular vector search.
 func (r *HyDERetriever) SearchWithFallback(query string, k int) ([]domain.ScoredChunk, error) {
 
 	results, err := r.Search(query, k)
