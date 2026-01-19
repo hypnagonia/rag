@@ -5,6 +5,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"path/filepath"
+	"runtime"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"rag/internal/adapter/analyzer"
@@ -20,6 +23,7 @@ type IndexUseCase struct {
 	walker    *fs.Walker
 	chunker   *chunker.LineChunker
 	tokenizer *analyzer.Tokenizer
+	workers   int
 }
 
 // NewIndexUseCase creates a new index use case.
@@ -29,25 +33,33 @@ func NewIndexUseCase(
 	chunker *chunker.LineChunker,
 	tokenizer *analyzer.Tokenizer,
 ) *IndexUseCase {
+	workers := runtime.NumCPU()
+	if workers < 2 {
+		workers = 2
+	}
 	return &IndexUseCase{
 		store:     store,
 		walker:    walker,
 		chunker:   chunker,
 		tokenizer: tokenizer,
+		workers:   workers,
 	}
 }
 
 // IndexResult contains the results of an indexing operation.
 type IndexResult struct {
-	FilesIndexed   int
-	FilesSkipped   int
-	FilesDeleted   int
-	ChunksCreated  int
-	Errors         []string
+	FilesIndexed  int
+	FilesSkipped  int
+	FilesDeleted  int
+	ChunksCreated int
+	Errors        []string
 }
 
+// ProgressCallback is called to report indexing progress.
+type ProgressCallback func(processed, total int, currentFile string)
+
 // Index indexes files in the given directory.
-func (u *IndexUseCase) Index(root string) (*IndexResult, error) {
+func (u *IndexUseCase) Index(root string, progress ProgressCallback) (*IndexResult, error) {
 	result := &IndexResult{}
 
 	// Walk the directory
@@ -70,37 +82,25 @@ func (u *IndexUseCase) Index(root string) (*IndexResult, error) {
 	// Track which files still exist
 	seenPaths := make(map[string]bool)
 
-	// Process each file
-	totalChunkLen := 0
-	totalChunks := 0
+	// Separate files into those needing indexing and those to skip
+	var filesToIndex []fs.FileInfo
+	var skippedDocs []domain.Document
 
 	for _, file := range files {
 		seenPaths[file.Path] = true
 
-		// Check if file needs re-indexing
 		if existing, ok := existingMap[file.Path]; ok {
 			if existing.ModTime.Unix() >= file.ModTime {
 				result.FilesSkipped++
-				// Count existing chunks for stats
-				chunks, _ := u.store.GetChunksByDoc(existing.ID)
-				for _, c := range chunks {
-					totalChunks++
-					totalChunkLen += len(c.Tokens)
-				}
+				skippedDocs = append(skippedDocs, existing)
 				continue
 			}
-			// File modified, delete old data
+			// File modified, delete old data first
 			if err := u.deleteDocument(existing.ID); err != nil {
 				result.Errors = append(result.Errors, fmt.Sprintf("failed to delete old data for %s: %v", file.Path, err))
 			}
 		}
-
-		// Index the file
-		if err := u.indexFile(file, &totalChunks, &totalChunkLen, result); err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("failed to index %s: %v", file.Path, err))
-			continue
-		}
-		result.FilesIndexed++
+		filesToIndex = append(filesToIndex, file)
 	}
 
 	// Delete documents for files that no longer exist
@@ -114,10 +114,31 @@ func (u *IndexUseCase) Index(root string) (*IndexResult, error) {
 		}
 	}
 
+	// Count existing chunks for stats
+	var existingChunkLen int64
+	var existingChunkCount int64
+	for _, doc := range skippedDocs {
+		chunks, _ := u.store.GetChunksByDoc(doc.ID)
+		for _, c := range chunks {
+			atomic.AddInt64(&existingChunkCount, 1)
+			atomic.AddInt64(&existingChunkLen, int64(len(c.Tokens)))
+		}
+	}
+
+	// Process files in parallel
+	if len(filesToIndex) > 0 {
+		indexed, chunkCount, chunkLen, errors := u.indexFilesParallel(filesToIndex, progress)
+		result.FilesIndexed = indexed
+		result.Errors = append(result.Errors, errors...)
+		existingChunkCount += int64(chunkCount)
+		existingChunkLen += int64(chunkLen)
+	}
+
 	// Update stats
+	totalChunks := int(existingChunkCount)
 	avgChunkLen := 0.0
 	if totalChunks > 0 {
-		avgChunkLen = float64(totalChunkLen) / float64(totalChunks)
+		avgChunkLen = float64(existingChunkLen) / float64(totalChunks)
 	}
 
 	stats := domain.Stats{
@@ -134,12 +155,99 @@ func (u *IndexUseCase) Index(root string) (*IndexResult, error) {
 	return result, nil
 }
 
-// indexFile indexes a single file.
-func (u *IndexUseCase) indexFile(file fs.FileInfo, totalChunks, totalChunkLen *int, result *IndexResult) error {
+// processedFile holds the result of processing a single file.
+type processedFile struct {
+	file     store.IndexedFile
+	err      error
+	path     string
+	chunkLen int
+}
+
+// indexFilesParallel indexes files using parallel workers and batch writes.
+func (u *IndexUseCase) indexFilesParallel(files []fs.FileInfo, progress ProgressCallback) (indexed, chunkCount, chunkLen int, errors []string) {
+	totalFiles := len(files)
+	var processed int64
+
+	// Channel for files to process
+	jobs := make(chan fs.FileInfo, len(files))
+	results := make(chan processedFile, len(files))
+
+	// Start workers
+	var wg sync.WaitGroup
+	for i := 0; i < u.workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for file := range jobs {
+				result := u.processFile(file)
+				results <- result
+
+				// Update progress
+				p := int(atomic.AddInt64(&processed, 1))
+				if progress != nil {
+					progress(p, totalFiles, file.Path)
+				}
+			}
+		}()
+	}
+
+	// Send jobs
+	go func() {
+		for _, file := range files {
+			jobs <- file
+		}
+		close(jobs)
+	}()
+
+	// Wait for workers and close results
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results and batch write
+	const batchSize = 50
+	batch := make([]store.IndexedFile, 0, batchSize)
+
+	for result := range results {
+		if result.err != nil {
+			errors = append(errors, fmt.Sprintf("failed to index %s: %v", result.path, result.err))
+			continue
+		}
+
+		batch = append(batch, result.file)
+		indexed++
+		chunkCount += len(result.file.Chunks)
+		chunkLen += result.chunkLen
+
+		// Write batch when full
+		if len(batch) >= batchSize {
+			if err := u.store.BatchIndex(batch); err != nil {
+				errors = append(errors, fmt.Sprintf("batch write failed: %v", err))
+			}
+			batch = batch[:0]
+		}
+	}
+
+	// Write remaining batch
+	if len(batch) > 0 {
+		if err := u.store.BatchIndex(batch); err != nil {
+			errors = append(errors, fmt.Sprintf("batch write failed: %v", err))
+		}
+	}
+
+	return
+}
+
+// processFile processes a single file and returns the indexed data.
+func (u *IndexUseCase) processFile(file fs.FileInfo) processedFile {
+	result := processedFile{path: file.Path}
+
 	// Read file content
 	content, err := fs.ReadFile(file.Path)
 	if err != nil {
-		return fmt.Errorf("failed to read file: %w", err)
+		result.err = fmt.Errorf("failed to read file: %w", err)
+		return result
 	}
 
 	// Create document
@@ -151,40 +259,39 @@ func (u *IndexUseCase) indexFile(file fs.FileInfo, totalChunks, totalChunkLen *i
 		Lang:    detectLanguage(file.Path),
 	}
 
-	// Store document
-	if err := u.store.PutDoc(doc); err != nil {
-		return fmt.Errorf("failed to store document: %w", err)
-	}
-
 	// Chunk the content
 	chunks, err := u.chunker.Chunk(doc, content)
 	if err != nil {
-		return fmt.Errorf("failed to chunk content: %w", err)
+		result.err = fmt.Errorf("failed to chunk content: %w", err)
+		return result
 	}
 
-	// Store chunks and build postings
-	for _, chunk := range chunks {
-		if err := u.store.PutChunk(chunk); err != nil {
-			return fmt.Errorf("failed to store chunk: %w", err)
-		}
+	// Build postings map
+	postings := make(map[string]map[string]int)
+	chunkLen := 0
 
-		// Build term frequency map and store postings
+	for _, chunk := range chunks {
 		tf := make(map[string]int)
 		for _, token := range chunk.Tokens {
 			tf[token]++
 		}
-
 		for term, count := range tf {
-			if err := u.store.PutPosting(term, chunk.ID, count); err != nil {
-				return fmt.Errorf("failed to store posting: %w", err)
+			if postings[term] == nil {
+				postings[term] = make(map[string]int)
 			}
+			postings[term][chunk.ID] = count
 		}
-
-		*totalChunks++
-		*totalChunkLen += len(chunk.Tokens)
+		chunkLen += len(chunk.Tokens)
 	}
 
-	return nil
+	result.file = store.IndexedFile{
+		Doc:      doc,
+		Chunks:   chunks,
+		Postings: postings,
+	}
+	result.chunkLen = chunkLen
+
+	return result
 }
 
 // deleteDocument deletes a document and all its associated data.

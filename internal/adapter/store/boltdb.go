@@ -367,3 +367,96 @@ func (s *BoltStore) AllTerms() ([]string, error) {
 	})
 	return terms, err
 }
+
+// IndexedFile represents a file to be indexed in a batch.
+type IndexedFile struct {
+	Doc      domain.Document
+	Chunks   []domain.Chunk
+	Postings map[string]map[string]int // term -> chunkID -> tf
+}
+
+// BatchIndex indexes multiple files in a single transaction for better performance.
+func (s *BoltStore) BatchIndex(files []IndexedFile) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		docsBucket := tx.Bucket(bucketDocs)
+		chunksBucket := tx.Bucket(bucketChunks)
+		blobsBucket := tx.Bucket(bucketBlobs)
+		docChunksBucket := tx.Bucket(bucketDocChunks)
+		termsBucket := tx.Bucket(bucketTerms)
+
+		// Collect all postings to merge at the end
+		allPostings := make(map[string][]domain.Posting)
+
+		for _, file := range files {
+			// Store document
+			meta := docMeta{
+				Path:    file.Doc.Path,
+				ModTime: file.Doc.ModTime.Unix(),
+				Lang:    file.Doc.Lang,
+			}
+			data, err := json.Marshal(meta)
+			if err != nil {
+				return err
+			}
+			if err := docsBucket.Put([]byte(file.Doc.ID), data); err != nil {
+				return err
+			}
+
+			// Store chunks
+			chunkIDs := make([]string, 0, len(file.Chunks))
+			for _, chunk := range file.Chunks {
+				chunkMeta := chunkMeta{
+					DocID:     chunk.DocID,
+					StartLine: chunk.StartLine,
+					EndLine:   chunk.EndLine,
+					Tokens:    chunk.Tokens,
+				}
+				data, err := json.Marshal(chunkMeta)
+				if err != nil {
+					return err
+				}
+				if err := chunksBucket.Put([]byte(chunk.ID), data); err != nil {
+					return err
+				}
+				if err := blobsBucket.Put([]byte(chunk.ID), []byte(chunk.Text)); err != nil {
+					return err
+				}
+				chunkIDs = append(chunkIDs, chunk.ID)
+			}
+
+			// Store doc -> chunks mapping
+			chunkIDsData, _ := json.Marshal(chunkIDs)
+			if err := docChunksBucket.Put([]byte(file.Doc.ID), chunkIDsData); err != nil {
+				return err
+			}
+
+			// Collect postings
+			for term, chunkTFs := range file.Postings {
+				for chunkID, tf := range chunkTFs {
+					allPostings[term] = append(allPostings[term], domain.Posting{
+						ChunkID: chunkID,
+						TF:      tf,
+					})
+				}
+			}
+		}
+
+		// Merge and store all postings
+		for term, newPostings := range allPostings {
+			var existing []domain.Posting
+			if data := termsBucket.Get([]byte(term)); data != nil {
+				json.Unmarshal(data, &existing)
+			}
+			existing = append(existing, newPostings...)
+			data, err := json.Marshal(existing)
+			if err != nil {
+				return err
+			}
+			if err := termsBucket.Put([]byte(term), data); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
