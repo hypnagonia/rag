@@ -163,6 +163,35 @@ func (s *BoltVectorStore) Search(query []float32, k int) ([]port.VectorResult, e
 	return results, nil
 }
 
+func (s *BoltVectorStore) SearchSubset(query []float32, ids []string) ([]port.VectorResult, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if len(query) != s.dimension {
+		return nil, fmt.Errorf("query dimension mismatch: expected %d, got %d", s.dimension, len(query))
+	}
+
+	results := make([]port.VectorResult, 0, len(ids))
+	for _, id := range ids {
+		entry, exists := s.vectors[id]
+		if !exists {
+			continue
+		}
+		sim := cosineSimilarity(query, entry.vector)
+		results = append(results, port.VectorResult{
+			ID:       id,
+			Score:    sim,
+			Metadata: entry.metadata,
+		})
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Score > results[j].Score
+	})
+
+	return results, nil
+}
+
 func (s *BoltVectorStore) Delete(ids []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

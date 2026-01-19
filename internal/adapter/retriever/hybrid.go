@@ -43,35 +43,47 @@ func NewHybridRetriever(
 }
 
 func (r *HybridRetriever) Search(query string, k int) ([]domain.ScoredChunk, error) {
-
 	if r.vectorStore == nil || r.embedder == nil {
 		return r.bm25.Search(query, k)
 	}
 
-	candidateK := k * 3
-	if candidateK < 20 {
-		candidateK = 20
+	candidateK := k * 10
+	if candidateK < 50 {
+		candidateK = 50
 	}
 
 	bm25Results, err := r.bm25.Search(query, candidateK)
-	if err != nil {
-
+	if err != nil || len(bm25Results) == 0 {
 		return r.vectorOnlySearch(query, k)
 	}
 
-	vectorResults, err := r.vectorSearch(query, candidateK)
-	if err != nil {
-
+	queryEmbedding, err := r.embedder.Embed([]string{query})
+	if err != nil || len(queryEmbedding) == 0 {
 		return bm25Results[:min(k, len(bm25Results))], nil
 	}
 
-	fused := r.rrfFuse(bm25Results, vectorResults)
-
-	if len(fused) > k {
-		fused = fused[:k]
+	chunkIDs := make([]string, len(bm25Results))
+	for i, result := range bm25Results {
+		chunkIDs[i] = result.Chunk.ID
 	}
 
-	return fused, nil
+	vectorScores, err := r.vectorStore.SearchSubset(queryEmbedding[0], chunkIDs)
+	if err != nil {
+		return bm25Results[:min(k, len(bm25Results))], nil
+	}
+
+	vectorScoreMap := make(map[string]float64)
+	for _, vs := range vectorScores {
+		vectorScoreMap[vs.ID] = vs.Score
+	}
+
+	reranked := r.combineScores(bm25Results, vectorScoreMap)
+
+	if len(reranked) > k {
+		reranked = reranked[:k]
+	}
+
+	return reranked, nil
 }
 
 func (r *HybridRetriever) vectorSearch(query string, k int) ([]domain.ScoredChunk, error) {
@@ -108,36 +120,39 @@ func (r *HybridRetriever) vectorOnlySearch(query string, k int) ([]domain.Scored
 	return r.vectorSearch(query, k)
 }
 
-func (r *HybridRetriever) rrfFuse(bm25Results, vectorResults []domain.ScoredChunk) []domain.ScoredChunk {
-	rrfScores := make(map[string]float64)
-	chunkMap := make(map[string]domain.Chunk)
+func (r *HybridRetriever) combineScores(bm25Results []domain.ScoredChunk, vectorScores map[string]float64) []domain.ScoredChunk {
+	if len(bm25Results) == 0 {
+		return nil
+	}
 
-	for rank, result := range bm25Results {
-		rrfScores[result.Chunk.ID] += r.bm25Weight / float64(r.rrfK+rank+1)
-		chunkMap[result.Chunk.ID] = result.Chunk
+	maxBM25 := bm25Results[0].Score
+	minBM25 := bm25Results[len(bm25Results)-1].Score
+	bm25Range := maxBM25 - minBM25
+	if bm25Range == 0 {
+		bm25Range = 1
 	}
 
 	vectorWeight := 1.0 - r.bm25Weight
-	for rank, result := range vectorResults {
-		rrfScores[result.Chunk.ID] += vectorWeight / float64(r.rrfK+rank+1)
-		if _, exists := chunkMap[result.Chunk.ID]; !exists {
-			chunkMap[result.Chunk.ID] = result.Chunk
-		}
-	}
+	results := make([]domain.ScoredChunk, 0, len(bm25Results))
 
-	fused := make([]domain.ScoredChunk, 0, len(rrfScores))
-	for id, score := range rrfScores {
-		fused = append(fused, domain.ScoredChunk{
-			Chunk: chunkMap[id],
-			Score: score,
+	for _, result := range bm25Results {
+		normalizedBM25 := (result.Score - minBM25) / bm25Range
+
+		vectorScore := vectorScores[result.Chunk.ID]
+
+		combinedScore := r.bm25Weight*normalizedBM25 + vectorWeight*vectorScore
+
+		results = append(results, domain.ScoredChunk{
+			Chunk: result.Chunk,
+			Score: combinedScore,
 		})
 	}
 
-	sort.Slice(fused, func(i, j int) bool {
-		return fused[i].Score > fused[j].Score
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Score > results[j].Score
 	})
 
-	return fused
+	return results
 }
 
 func min(a, b int) int {
