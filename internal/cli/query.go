@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,14 +11,16 @@ import (
 	"rag/internal/adapter/analyzer"
 	"rag/internal/adapter/retriever"
 	"rag/internal/adapter/store"
+	"rag/internal/domain"
 	"rag/internal/usecase"
 )
 
 var (
-	queryText   string
-	queryTopK   int
-	queryJSON   bool
-	queryNoMMR  bool
+	queryText    string
+	queryTopK    int
+	queryJSON    bool
+	queryNoMMR   bool
+	queryContext int
 )
 
 var queryCmd = &cobra.Command{
@@ -37,6 +40,7 @@ func init() {
 	queryCmd.Flags().IntVarP(&queryTopK, "top-k", "k", 0, "number of results (default from config)")
 	queryCmd.Flags().BoolVar(&queryJSON, "json", false, "output as JSON")
 	queryCmd.Flags().BoolVar(&queryNoMMR, "no-mmr", false, "disable MMR reranking")
+	queryCmd.Flags().IntVarP(&queryContext, "context", "c", 0, "expand results by N lines before/after")
 	queryCmd.MarkFlagRequired("query")
 }
 
@@ -74,37 +78,41 @@ func runQuery(cmd *cobra.Command, args []string) error {
 	}
 
 	// Execute search
-	var results []usecase.ScoredChunkResult
+	var chunks []domain.ScoredChunk
 	if queryNoMMR {
-		chunks, err := retrieveUC.RetrieveWithoutMMR(queryText, topK)
-		if err != nil {
-			return fmt.Errorf("search failed: %w", err)
-		}
-		for _, c := range chunks {
-			doc, _ := st.GetDoc(c.Chunk.DocID)
-			results = append(results, usecase.ScoredChunkResult{
-				Path:      doc.Path,
-				StartLine: c.Chunk.StartLine,
-				EndLine:   c.Chunk.EndLine,
-				Score:     c.Score,
-				Text:      c.Chunk.Text,
-			})
-		}
+		chunks, err = retrieveUC.RetrieveWithoutMMR(queryText, topK)
 	} else {
-		chunks, err := retrieveUC.Retrieve(queryText, topK)
-		if err != nil {
-			return fmt.Errorf("search failed: %w", err)
+		chunks, err = retrieveUC.Retrieve(queryText, topK)
+	}
+	if err != nil {
+		return fmt.Errorf("search failed: %w", err)
+	}
+
+	// Build results with optional context expansion
+	var results []usecase.ScoredChunkResult
+	for _, c := range chunks {
+		doc, _ := st.GetDoc(c.Chunk.DocID)
+		startLine := c.Chunk.StartLine
+		endLine := c.Chunk.EndLine
+		text := c.Chunk.Text
+
+		// Expand context if requested
+		if queryContext > 0 {
+			newStart, newEnd, expandedText, err := expandContext(doc.Path, startLine, endLine, queryContext)
+			if err == nil && expandedText != "" {
+				startLine = newStart
+				endLine = newEnd
+				text = expandedText
+			}
 		}
-		for _, c := range chunks {
-			doc, _ := st.GetDoc(c.Chunk.DocID)
-			results = append(results, usecase.ScoredChunkResult{
-				Path:      doc.Path,
-				StartLine: c.Chunk.StartLine,
-				EndLine:   c.Chunk.EndLine,
-				Score:     c.Score,
-				Text:      c.Chunk.Text,
-			})
-		}
+
+		results = append(results, usecase.ScoredChunkResult{
+			Path:      doc.Path,
+			StartLine: startLine,
+			EndLine:   endLine,
+			Score:     c.Score,
+			Text:      text,
+		})
 	}
 
 	// Output results
@@ -119,9 +127,9 @@ func runQuery(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Found %d results for: %s\n\n", len(results), queryText)
 		for i, r := range results {
 			fmt.Printf("--- [%d] %s:L%d-%d (score: %.2f) ---\n", i+1, r.Path, r.StartLine, r.EndLine, r.Score)
-			// Truncate long text for display
+			// Truncate long text for display (unless context expansion is used)
 			text := r.Text
-			if len(text) > 500 {
+			if queryContext == 0 && len(text) > 500 {
 				text = text[:500] + "..."
 			}
 			fmt.Println(text)
@@ -130,4 +138,61 @@ func runQuery(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// expandContext reads additional lines from the source file around the chunk.
+func expandContext(path string, startLine, endLine, extraLines int) (newStart, newEnd int, text string, err error) {
+	if extraLines <= 0 {
+		return startLine, endLine, "", nil
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return startLine, endLine, "", err
+	}
+	defer file.Close()
+
+	// Calculate expanded range
+	newStart = startLine - extraLines
+	if newStart < 1 {
+		newStart = 1
+	}
+	newEnd = endLine + extraLines
+
+	// Read lines
+	scanner := bufio.NewScanner(file)
+	var lines []string
+	lineNum := 0
+	for scanner.Scan() {
+		lineNum++
+		if lineNum >= newStart && lineNum <= newEnd {
+			lines = append(lines, scanner.Text())
+		}
+		if lineNum > newEnd {
+			break
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return startLine, endLine, "", err
+	}
+
+	// Adjust newEnd if file was shorter
+	actualEnd := newStart + len(lines) - 1
+	if actualEnd < newEnd {
+		newEnd = actualEnd
+	}
+
+	return newStart, newEnd, joinLines(lines), nil
+}
+
+func joinLines(lines []string) string {
+	result := ""
+	for i, line := range lines {
+		if i > 0 {
+			result += "\n"
+		}
+		result += line
+	}
+	return result
 }
