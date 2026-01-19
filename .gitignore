@@ -33,3 +33,5 @@ Thumbs.db
 *.db
 tmp/
 examples/*/main
+agentic-rag
+rag

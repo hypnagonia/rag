@@ -43,7 +43,7 @@ index:
 
 retrieve:
   # Number of top results to return
-  top_k: 20
+  top_k: 4
 
   # MMR lambda parameter (higher = more relevance, lower = more diversity)
   mmr_lambda: 0.7
@@ -53,7 +53,7 @@ retrieve:
 
 pack:
   # Maximum token budget for packed context
-  token_budget: 4000
+  token_budget: 1000
 
   # Boost for recently modified files (0-1)
   recency_boost: 0.1
