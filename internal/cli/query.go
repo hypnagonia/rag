@@ -20,12 +20,13 @@ import (
 )
 
 var (
-	queryText     string
-	queryTopK     int
-	queryJSON     bool
-	queryNoMMR    bool
-	queryContext  int
-	querySemantic bool
+	queryText        string
+	queryTopK        int
+	queryJSON        bool
+	queryNoMMR       bool
+	queryContext     int
+	querySemantic    bool
+	queryNoAutoIndex bool
 )
 
 var queryCmd = &cobra.Command{
@@ -52,6 +53,7 @@ func init() {
 	queryCmd.Flags().BoolVar(&queryNoMMR, "no-mmr", false, "disable MMR reranking")
 	queryCmd.Flags().IntVarP(&queryContext, "context", "c", 0, "expand results by N lines before/after")
 	queryCmd.Flags().BoolVar(&querySemantic, "semantic", false, "use only embedding/vector search (no BM25)")
+	queryCmd.Flags().BoolVar(&queryNoAutoIndex, "no-auto-index", false, "error instead of auto-indexing when index is missing")
 	queryCmd.MarkFlagRequired("query")
 }
 
@@ -61,6 +63,9 @@ func runQuery(cmd *cobra.Command, args []string) error {
 
 	dbPath := config.IndexDBPath(rootDir)
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		if queryNoAutoIndex {
+			return fmt.Errorf("no index found. Run 'rag index' first")
+		}
 		if askYesNo("No index found. Index this directory?") {
 			if err := runIndex(cmd, []string{rootDir}); err != nil {
 				return fmt.Errorf("indexing failed: %w", err)
@@ -77,7 +82,7 @@ func runQuery(cmd *cobra.Command, args []string) error {
 	defer st.Close()
 
 	changedFiles := checkForChanges(st)
-	if len(changedFiles) > 0 {
+	if len(changedFiles) > 0 && !queryNoAutoIndex {
 		fmt.Printf("Detected %d changed file(s):\n", len(changedFiles))
 		for i, f := range changedFiles {
 			if i >= 5 {
