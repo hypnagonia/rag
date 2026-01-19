@@ -75,7 +75,7 @@ go run main.go -q "question" -index /path/to/indexed -expand
 Flags: `-fast` (1 LLM call), `-expand` (query expansion), `-v` (verbose)
 
 ## Guidelines
-- Don not commit clause as projects coauthor
+- Do not commit Claude as project's coauthor
 - Never add comments to generated code!
 - Do not create constructors with many arguments - Builder pattern is preferable 
 - Do git command 
@@ -83,7 +83,7 @@ Flags: `-fast` (1 LLM call), `-expand` (query expansion), `-v` (verbose)
   - add all changes and commit them 
   - git push
   - create a remote PR
-  - merge it to main
-  - delete this branch
-  - switch back to main
-  - pull updated main
+  - merge it to main using gh
+  - delete the merged branch
+  - switch back to main branch
+  - pull updated main branch
