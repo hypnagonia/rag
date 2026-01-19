@@ -1,9 +1,5 @@
 # CLAUDE.md
 
-## Guidelines
-- Don not commit clause as projects coauthor
-- Never add comments to generated code!
-
 ## Build & Test Commands
 
 ```bash
@@ -77,3 +73,15 @@ go run main.go -q "question" -index /path/to/indexed -expand
 ```
 
 Flags: `-fast` (1 LLM call), `-expand` (query expansion), `-v` (verbose)
+
+## Guidelines
+- Don not commit clause as projects coauthor
+- Never add comments to generated code!
+- Do not create constructors with many arguments - Builder pattern is preferable 
+- Do git command 
+  - create a new branch 
+  - add all changes and commit them 
+  - create a PR 
+  - merge the PR 
+  - delete merged branch 
+  - switch back to main
