@@ -200,6 +200,44 @@ logging:
 | `retrieve` | `dedup_jaccard` | Jaccard threshold for dedup | `0.8` |
 | `pack` | `token_budget` | Default token budget | `4000` |
 
+### Hybrid Search (BM25 + Vector Embeddings)
+
+To enable semantic search alongside BM25 keyword search, install [Ollama](https://ollama.ai/) and pull an embedding model:
+
+```bash
+# Install Ollama (macOS)
+brew install ollama
+
+# Start Ollama server
+ollama serve
+
+# Pull embedding model
+ollama pull nomic-embed-text
+```
+
+Then add embedding config to your `rag.yaml`:
+
+```yaml
+embedding:
+  enabled: true
+  provider: ollama
+  model: nomic-embed-text
+  dimension: 768
+
+retrieve:
+  hybrid_enabled: true
+  rrf_k: 60          # RRF fusion parameter
+  bm25_weight: 0.5   # Balance between BM25 and vector (0-1)
+```
+
+Re-index to generate embeddings:
+
+```bash
+rag index /path/to/content
+```
+
+Hybrid search combines BM25 (keyword matching) with vector similarity (semantic matching) using Reciprocal Rank Fusion (RRF).
+
 ## How It Works
 
 ### Indexing
