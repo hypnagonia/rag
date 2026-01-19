@@ -3,6 +3,7 @@ package usecase
 import (
 	"fmt"
 	"sort"
+	"time"
 
 	"rag/internal/adapter/analyzer"
 	"rag/internal/adapter/store"
@@ -11,15 +12,17 @@ import (
 
 // PackUseCase handles context packing operations.
 type PackUseCase struct {
-	store     *store.BoltStore
-	tokenizer *analyzer.Tokenizer
+	store        *store.BoltStore
+	tokenizer    *analyzer.Tokenizer
+	recencyBoost float64
 }
 
 // NewPackUseCase creates a new pack use case.
-func NewPackUseCase(store *store.BoltStore, tokenizer *analyzer.Tokenizer) *PackUseCase {
+func NewPackUseCase(store *store.BoltStore, tokenizer *analyzer.Tokenizer, recencyBoost float64) *PackUseCase {
 	return &PackUseCase{
-		store:     store,
-		tokenizer: tokenizer,
+		store:        store,
+		tokenizer:    tokenizer,
+		recencyBoost: recencyBoost,
 	}
 }
 
@@ -34,12 +37,31 @@ func (u *PackUseCase) Pack(query string, chunks []domain.ScoredChunk, budget int
 		}, nil
 	}
 
-	// Calculate utility for each chunk: score * coverage / tokens
+	// Calculate utility for each chunk: score * recency_factor / tokens
 	type rankedChunk struct {
 		chunk   domain.ScoredChunk
 		utility float64
 		tokens  int
 	}
+
+	// Find the most recent modification time for recency calculation
+	var maxModTime time.Time
+	docModTimes := make(map[string]time.Time)
+	if u.recencyBoost > 0 {
+		for _, c := range chunks {
+			if _, exists := docModTimes[c.Chunk.DocID]; !exists {
+				if doc, err := u.store.GetDoc(c.Chunk.DocID); err == nil {
+					docModTimes[c.Chunk.DocID] = doc.ModTime
+					if doc.ModTime.After(maxModTime) {
+						maxModTime = doc.ModTime
+					}
+				}
+			}
+		}
+	}
+
+	// Calculate max age for normalization (use 30 days as reference window)
+	maxAgeDays := 30.0
 
 	ranked := make([]rankedChunk, 0, len(chunks))
 	for _, c := range chunks {
@@ -47,8 +69,27 @@ func (u *PackUseCase) Pack(query string, chunks []domain.ScoredChunk, budget int
 		if tokens == 0 {
 			tokens = 1
 		}
-		// Utility = relevance score / token cost
-		utility := c.Score / float64(tokens)
+
+		// Calculate recency factor (1.0 for most recent, decaying for older files)
+		recencyFactor := 1.0
+		if u.recencyBoost > 0 && !maxModTime.IsZero() {
+			if modTime, exists := docModTimes[c.Chunk.DocID]; exists {
+				ageDays := maxModTime.Sub(modTime).Hours() / 24.0
+				if ageDays < 0 {
+					ageDays = 0
+				}
+				// Normalize age to [0, 1] range (capped at maxAgeDays)
+				normalizedAge := ageDays / maxAgeDays
+				if normalizedAge > 1 {
+					normalizedAge = 1
+				}
+				// Recency factor: 1 for newest, (1 - recencyBoost) for oldest
+				recencyFactor = 1.0 + u.recencyBoost*(1.0-normalizedAge) - u.recencyBoost*normalizedAge
+			}
+		}
+
+		// Utility = relevance score * recency factor / token cost
+		utility := (c.Score * recencyFactor) / float64(tokens)
 		ranked = append(ranked, rankedChunk{
 			chunk:   c,
 			utility: utility,

@@ -35,7 +35,7 @@ func TestPackBudget(t *testing.T) {
 	}
 
 	tokenizer := analyzer.NewTokenizer(true)
-	packUC := NewPackUseCase(st, tokenizer)
+	packUC := NewPackUseCase(st, tokenizer, 0)
 
 	// Create chunks of varying sizes
 	chunks := []domain.ScoredChunk{
@@ -123,7 +123,7 @@ func TestPackEmptyChunks(t *testing.T) {
 	defer st.Close()
 
 	tokenizer := analyzer.NewTokenizer(true)
-	packUC := NewPackUseCase(st, tokenizer)
+	packUC := NewPackUseCase(st, tokenizer, 0)
 
 	packed, err := packUC.Pack("test query", nil, 1000)
 	if err != nil {
@@ -162,7 +162,7 @@ func TestPackMergeAdjacent(t *testing.T) {
 	st.PutDoc(doc)
 
 	tokenizer := analyzer.NewTokenizer(true)
-	packUC := NewPackUseCase(st, tokenizer)
+	packUC := NewPackUseCase(st, tokenizer, 0)
 
 	// Create adjacent chunks from same file
 	chunks := []domain.ScoredChunk{
@@ -235,7 +235,7 @@ func TestPackUtilityRanking(t *testing.T) {
 	st.PutDoc(doc)
 
 	tokenizer := analyzer.NewTokenizer(true)
-	packUC := NewPackUseCase(st, tokenizer)
+	packUC := NewPackUseCase(st, tokenizer, 0)
 
 	// Create chunks where a lower-scored but smaller chunk has better utility
 	chunks := []domain.ScoredChunk{

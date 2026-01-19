@@ -62,12 +62,12 @@ func runPack(cmd *cobra.Command, args []string) error {
 	tokenizer := analyzer.NewTokenizer(cfg.Index.Stemming)
 
 	// Create retrievers
-	bm25 := retriever.NewBM25Retriever(st, tokenizer, cfg.Index.K1, cfg.Index.B)
+	bm25 := retriever.NewBM25Retriever(st, tokenizer, cfg.Index.K1, cfg.Index.B, cfg.Retrieve.PathBoostWeight)
 	mmr := retriever.NewMMRReranker(cfg.Retrieve.MMRLambda, cfg.Retrieve.DedupJaccard)
 
 	// Create use cases
-	retrieveUC := usecase.NewRetrieveUseCase(bm25, mmr)
-	packUC := usecase.NewPackUseCase(st, tokenizer)
+	retrieveUC := usecase.NewRetrieveUseCase(bm25, mmr, cfg.Retrieve.MinScoreThreshold)
+	packUC := usecase.NewPackUseCase(st, tokenizer, cfg.Pack.RecencyBoost)
 
 	// Determine parameters
 	topK := cfg.Retrieve.TopK

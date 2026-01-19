@@ -14,6 +14,7 @@ import (
 	"rag/internal/adapter/chunker"
 	"rag/internal/adapter/fs"
 	"rag/internal/adapter/store"
+	"rag/internal/port"
 	"rag/internal/usecase"
 )
 
@@ -69,14 +70,38 @@ func runIndex(cmd *cobra.Command, args []string) error {
 	}
 	defer st.Close()
 
+	// Check for schema migration or rebuild
+	migrationResult, err := st.CheckMigration(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to check migration: %w", err)
+	}
+
+	if migrationResult.NeedsRebuild {
+		fmt.Printf("Index rebuild required: %s\n", migrationResult.Reason)
+		fmt.Println("Clearing existing index...")
+		if err := st.Clear(); err != nil {
+			return fmt.Errorf("failed to clear index: %w", err)
+		}
+	} else if migrationResult.NeedsMigration {
+		fmt.Printf("Running schema migration: %s\n", migrationResult.Reason)
+		if err := st.Migrate(cfg); err != nil {
+			return fmt.Errorf("migration failed: %w", err)
+		}
+	}
+
 	// Create tokenizer
 	tokenizer := analyzer.NewTokenizer(cfg.Index.Stemming)
 
 	// Create walker with configured patterns
 	walker := fs.NewWalker(cfg.Index.Includes, cfg.Index.Excludes)
 
-	// Create chunker
-	chk := chunker.NewLineChunker(cfg.Index.ChunkTokens, cfg.Index.ChunkOverlap, tokenizer)
+	// Create chunker (use composite chunker if AST chunking is enabled)
+	var chk port.Chunker
+	if cfg.Index.ASTChunking {
+		chk = chunker.NewCompositeChunker(cfg.Index.ChunkTokens, cfg.Index.ChunkOverlap, tokenizer, true)
+	} else {
+		chk = chunker.NewLineChunker(cfg.Index.ChunkTokens, cfg.Index.ChunkOverlap, tokenizer)
+	}
 
 	// Create index use case
 	indexUC := usecase.NewIndexUseCase(st, walker, chk, tokenizer)
@@ -132,6 +157,11 @@ func runIndex(cmd *cobra.Command, args []string) error {
 	result, err := indexUC.Index(path, progressCallback)
 	if err != nil {
 		return fmt.Errorf("indexing failed: %w", err)
+	}
+
+	// Update schema info after successful indexing
+	if err := st.Migrate(cfg); err != nil {
+		return fmt.Errorf("failed to update schema info: %w", err)
 	}
 
 	// Print results

@@ -91,7 +91,7 @@ func TestBM25Scoring(t *testing.T) {
 	}
 
 	// Create retriever
-	retriever := NewBM25Retriever(st, tokenizer, 1.2, 0.75)
+	retriever := NewBM25Retriever(st, tokenizer, 1.2, 0.75, 0)
 
 	// Test search for "authentication"
 	results, err := retriever.Search("authentication", 10)
@@ -144,7 +144,7 @@ func TestBM25EmptyQuery(t *testing.T) {
 	defer st.Close()
 
 	tokenizer := analyzer.NewTokenizer(true)
-	retriever := NewBM25Retriever(st, tokenizer, 1.2, 0.75)
+	retriever := NewBM25Retriever(st, tokenizer, 1.2, 0.75, 0)
 
 	results, err := retriever.Search("", 10)
 	if err != nil {
@@ -185,7 +185,7 @@ func TestBM25NoMatches(t *testing.T) {
 	st.PutPosting("world", "chunk1", 1)
 	st.UpdateStats(domain.Stats{TotalDocs: 1, TotalChunks: 1, AvgChunkLen: 2})
 
-	retriever := NewBM25Retriever(st, tokenizer, 1.2, 0.75)
+	retriever := NewBM25Retriever(st, tokenizer, 1.2, 0.75, 0)
 
 	results, err := retriever.Search("zzzznonexistent", 10)
 	if err != nil {

@@ -7,18 +7,21 @@ import (
 
 // RetrieveUseCase handles search and retrieval operations.
 type RetrieveUseCase struct {
-	bm25Retriever *retriever.BM25Retriever
-	mmrReranker   *retriever.MMRReranker
+	bm25Retriever     *retriever.BM25Retriever
+	mmrReranker       *retriever.MMRReranker
+	minScoreThreshold float64 // Filter results below this score (0 = disabled)
 }
 
 // NewRetrieveUseCase creates a new retrieve use case.
 func NewRetrieveUseCase(
 	bm25Retriever *retriever.BM25Retriever,
 	mmrReranker *retriever.MMRReranker,
+	minScoreThreshold float64,
 ) *RetrieveUseCase {
 	return &RetrieveUseCase{
-		bm25Retriever: bm25Retriever,
-		mmrReranker:   mmrReranker,
+		bm25Retriever:     bm25Retriever,
+		mmrReranker:       mmrReranker,
+		minScoreThreshold: minScoreThreshold,
 	}
 }
 
@@ -37,7 +40,23 @@ func (u *RetrieveUseCase) Retrieve(query string, topK int) ([]domain.ScoredChunk
 	// Apply MMR reranking for diversity
 	results := u.mmrReranker.Rerank(candidates, topK)
 
+	// Apply relevance threshold filtering if configured
+	if u.minScoreThreshold > 0 {
+		results = u.filterByThreshold(results)
+	}
+
 	return results, nil
+}
+
+// filterByThreshold removes results below the minimum score threshold.
+func (u *RetrieveUseCase) filterByThreshold(results []domain.ScoredChunk) []domain.ScoredChunk {
+	filtered := make([]domain.ScoredChunk, 0, len(results))
+	for _, r := range results {
+		if r.Score >= u.minScoreThreshold {
+			filtered = append(filtered, r)
+		}
+	}
+	return filtered
 }
 
 // RetrieveWithoutMMR searches without MMR reranking (for testing/debugging).

@@ -61,3 +61,33 @@ type Stats struct {
 	TotalChunks int
 	AvgChunkLen float64
 }
+
+// Symbol represents a code symbol (function, type, method, etc.).
+type Symbol struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Type      string `json:"type"` // "function", "method", "type", "interface", "struct", "variable", "constant"
+	DocID     string `json:"doc_id"`
+	Line      int    `json:"line"`
+	Signature string `json:"signature,omitempty"`
+	ChunkID   string `json:"chunk_id,omitempty"`
+}
+
+// CallGraphEntry represents a caller-callee relationship.
+type CallGraphEntry struct {
+	CallerID string `json:"caller_id"` // Symbol ID of the caller
+	CalleeID string `json:"callee_id"` // Symbol ID of the callee (or name if external)
+	Line     int    `json:"line"`      // Line where the call occurs
+}
+
+// ChunkMetadata contains enriched metadata for a chunk.
+type ChunkMetadata struct {
+	Type       string   `json:"type,omitempty"`       // "function", "class", "comment", "mixed"
+	Name       string   `json:"name,omitempty"`       // Primary symbol name if applicable
+	Signature  string   `json:"signature,omitempty"`  // Function/method signature
+	Symbols    []string `json:"symbols,omitempty"`    // Symbol IDs contained in this chunk
+	Imports    []string `json:"imports,omitempty"`    // Import paths
+	Calls      []string `json:"calls,omitempty"`      // Functions/methods called
+	CalledBy   []string `json:"called_by,omitempty"`  // Functions/methods that call this
+	ParentID   string   `json:"parent_id,omitempty"`  // Parent chunk ID (for nested structures)
+}

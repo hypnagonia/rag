@@ -11,17 +11,17 @@ import (
 	"time"
 
 	"rag/internal/adapter/analyzer"
-	"rag/internal/adapter/chunker"
 	"rag/internal/adapter/fs"
 	"rag/internal/adapter/store"
 	"rag/internal/domain"
+	"rag/internal/port"
 )
 
 // IndexUseCase handles file indexing operations.
 type IndexUseCase struct {
 	store     *store.BoltStore
 	walker    *fs.Walker
-	chunker   *chunker.LineChunker
+	chunkSvc  port.Chunker
 	tokenizer *analyzer.Tokenizer
 	workers   int
 }
@@ -30,7 +30,7 @@ type IndexUseCase struct {
 func NewIndexUseCase(
 	store *store.BoltStore,
 	walker *fs.Walker,
-	chunker *chunker.LineChunker,
+	chunkSvc port.Chunker,
 	tokenizer *analyzer.Tokenizer,
 ) *IndexUseCase {
 	workers := runtime.NumCPU()
@@ -40,7 +40,7 @@ func NewIndexUseCase(
 	return &IndexUseCase{
 		store:     store,
 		walker:    walker,
-		chunker:   chunker,
+		chunkSvc:  chunkSvc,
 		tokenizer: tokenizer,
 		workers:   workers,
 	}
@@ -260,7 +260,7 @@ func (u *IndexUseCase) processFile(file fs.FileInfo) processedFile {
 	}
 
 	// Chunk the content
-	chunks, err := u.chunker.Chunk(doc, content)
+	chunks, err := u.chunkSvc.Chunk(doc, content)
 	if err != nil {
 		result.err = fmt.Errorf("failed to chunk content: %w", err)
 		return result

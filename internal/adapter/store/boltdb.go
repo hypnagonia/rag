@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.etcd.io/bbolt"
@@ -10,13 +11,16 @@ import (
 )
 
 var (
-	bucketDocs   = []byte("docs")
-	bucketChunks = []byte("chunks")
-	bucketBlobs  = []byte("blobs")
-	bucketTerms  = []byte("terms")
-	bucketStats  = []byte("stats")
+	bucketDocs      = []byte("docs")
+	bucketChunks    = []byte("chunks")
+	bucketBlobs     = []byte("blobs")
+	bucketTerms     = []byte("terms")
+	bucketStats     = []byte("stats")
 	bucketDocChunks = []byte("doc_chunks") // docID -> []chunkID mapping
-	keyStats     = []byte("corpus_stats")
+	bucketSymbols   = []byte("symbols")    // symbolID -> Symbol
+	bucketDocSymbols = []byte("doc_symbols") // docID -> []symbolID mapping
+	bucketCallGraph = []byte("callgraph")  // callerID -> []CallGraphEntry
+	keyStats        = []byte("corpus_stats")
 )
 
 // BoltStore implements IndexStore using BoltDB.
@@ -33,7 +37,7 @@ func NewBoltStore(path string) (*BoltStore, error) {
 
 	// Create buckets
 	err = db.Update(func(tx *bbolt.Tx) error {
-		buckets := [][]byte{bucketDocs, bucketChunks, bucketBlobs, bucketTerms, bucketStats, bucketDocChunks}
+		buckets := [][]byte{bucketDocs, bucketChunks, bucketBlobs, bucketTerms, bucketStats, bucketDocChunks, bucketSymbols, bucketDocSymbols, bucketCallGraph}
 		for _, b := range buckets {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return fmt.Errorf("failed to create bucket %s: %w", b, err)
@@ -459,4 +463,157 @@ func (s *BoltStore) BatchIndex(files []IndexedFile) error {
 
 		return nil
 	})
+}
+
+// PutSymbols stores symbols for a document.
+func (s *BoltStore) PutSymbols(docID string, symbols []domain.Symbol) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		symbolBucket := tx.Bucket(bucketSymbols)
+		docSymbolsBucket := tx.Bucket(bucketDocSymbols)
+
+		symbolIDs := make([]string, 0, len(symbols))
+		for _, sym := range symbols {
+			data, err := json.Marshal(sym)
+			if err != nil {
+				return err
+			}
+			if err := symbolBucket.Put([]byte(sym.ID), data); err != nil {
+				return err
+			}
+			symbolIDs = append(symbolIDs, sym.ID)
+		}
+
+		// Store doc -> symbols mapping
+		idsData, err := json.Marshal(symbolIDs)
+		if err != nil {
+			return err
+		}
+		return docSymbolsBucket.Put([]byte(docID), idsData)
+	})
+}
+
+// GetSymbol retrieves a symbol by ID.
+func (s *BoltStore) GetSymbol(id string) (domain.Symbol, error) {
+	var sym domain.Symbol
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		data := tx.Bucket(bucketSymbols).Get([]byte(id))
+		if data == nil {
+			return fmt.Errorf("symbol not found: %s", id)
+		}
+		return json.Unmarshal(data, &sym)
+	})
+	return sym, err
+}
+
+// GetSymbolsByDoc retrieves all symbols for a document.
+func (s *BoltStore) GetSymbolsByDoc(docID string) ([]domain.Symbol, error) {
+	var symbols []domain.Symbol
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		data := tx.Bucket(bucketDocSymbols).Get([]byte(docID))
+		if data == nil {
+			return nil
+		}
+		var ids []string
+		if err := json.Unmarshal(data, &ids); err != nil {
+			return err
+		}
+		symbolBucket := tx.Bucket(bucketSymbols)
+		for _, id := range ids {
+			symData := symbolBucket.Get([]byte(id))
+			if symData != nil {
+				var sym domain.Symbol
+				if err := json.Unmarshal(symData, &sym); err == nil {
+					symbols = append(symbols, sym)
+				}
+			}
+		}
+		return nil
+	})
+	return symbols, err
+}
+
+// DeleteSymbolsByDoc deletes all symbols for a document.
+func (s *BoltStore) DeleteSymbolsByDoc(docID string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		docSymbolsBucket := tx.Bucket(bucketDocSymbols)
+		data := docSymbolsBucket.Get([]byte(docID))
+		if data == nil {
+			return nil
+		}
+		var ids []string
+		if err := json.Unmarshal(data, &ids); err != nil {
+			return err
+		}
+		symbolBucket := tx.Bucket(bucketSymbols)
+		for _, id := range ids {
+			symbolBucket.Delete([]byte(id))
+		}
+		return docSymbolsBucket.Delete([]byte(docID))
+	})
+}
+
+// PutCallGraph stores call graph entries for a document.
+func (s *BoltStore) PutCallGraph(docID string, entries []domain.CallGraphEntry) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketCallGraph)
+		data, err := json.Marshal(entries)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(docID), data)
+	})
+}
+
+// GetCallGraph retrieves call graph entries for a document.
+func (s *BoltStore) GetCallGraph(docID string) ([]domain.CallGraphEntry, error) {
+	var entries []domain.CallGraphEntry
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		data := tx.Bucket(bucketCallGraph).Get([]byte(docID))
+		if data == nil {
+			return nil
+		}
+		return json.Unmarshal(data, &entries)
+	})
+	return entries, err
+}
+
+// DeleteCallGraph deletes call graph entries for a document.
+func (s *BoltStore) DeleteCallGraph(docID string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		return tx.Bucket(bucketCallGraph).Delete([]byte(docID))
+	})
+}
+
+// GetAllSymbols retrieves all symbols in the index.
+func (s *BoltStore) GetAllSymbols() ([]domain.Symbol, error) {
+	var symbols []domain.Symbol
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketSymbols)
+		return b.ForEach(func(k, v []byte) error {
+			var sym domain.Symbol
+			if err := json.Unmarshal(v, &sym); err != nil {
+				return nil // Skip invalid entries
+			}
+			symbols = append(symbols, sym)
+			return nil
+		})
+	})
+	return symbols, err
+}
+
+// SearchSymbols searches for symbols by name.
+func (s *BoltStore) SearchSymbols(query string) ([]domain.Symbol, error) {
+	all, err := s.GetAllSymbols()
+	if err != nil {
+		return nil, err
+	}
+
+	var matches []domain.Symbol
+	queryLower := strings.ToLower(query)
+	for _, sym := range all {
+		if strings.Contains(strings.ToLower(sym.Name), queryLower) {
+			matches = append(matches, sym)
+		}
+	}
+	return matches, nil
 }
