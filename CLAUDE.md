@@ -78,12 +78,14 @@ Flags: `-fast` (1 LLM call), `-expand` (query expansion), `-v` (verbose)
 - Do not commit Claude as project's coauthor
 - Never add comments to generated code!
 - Do not create constructors with many arguments - Builder pattern is preferable 
-- Do git command 
-  - create a new branch 
-  - add all changes and commit them 
-  - git push
-  - create a remote PR
-  - merge it to main using gh
-  - delete the merged branch
-  - switch back to main branch
-  - pull updated main branch
+
+- Run ONLY these operations in order using git + gh:
+  - Ensure we are on main and up to date (git checkout main; git pull --ff-only)
+  - Create a new branch from main
+  - git add -A; git commit -m "<message>"
+  - git push -u origin <branch>
+  - Create a PR with gh pr create (base main, head <branch>)
+  - Merge ONLY via GitHub using gh pr merge <branch> --squash --delete-branch
+  - Do NOT run git merge at any point
+  - Switch back to main and pull (git checkout main; git pull --ff-only)
+  - Delete the local branch (git branch -D <branch>)
