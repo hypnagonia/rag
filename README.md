@@ -108,6 +108,7 @@ Search indexed files using BM25 retrieval with MMR deduplication.
 ```bash
 rag query -q "database connection"
 rag query -q "error handling" --top-k 10 --json
+rag query -q "how to handle errors" --semantic
 ```
 
 **Flags:**
@@ -115,6 +116,8 @@ rag query -q "error handling" --top-k 10 --json
 - `-k, --top-k` - Number of results (default from config)
 - `--json` - Output as JSON
 - `--no-mmr` - Disable MMR reranking
+- `--semantic` - Use embedding-only search (no BM25)
+- `-c, --context` - Expand results by N lines before/after
 
 ### `rag pack -q "<question>"`
 
@@ -237,6 +240,21 @@ rag index /path/to/content
 ```
 
 Hybrid search combines BM25 (keyword matching) with vector similarity (semantic matching) using Reciprocal Rank Fusion (RRF).
+
+### Semantic-Only Search
+
+Use `--semantic` flag to search using only vector embeddings (no BM25 keyword matching):
+
+```bash
+rag query -q "a noble man betrayed by those he trusted" --semantic
+```
+
+Semantic search is useful for:
+- Natural language questions (e.g., "how to handle errors gracefully")
+- Conceptual queries where exact keywords may not appear
+- Finding related content even when terminology differs
+
+Requires embeddings to be enabled and indexed (see Hybrid Search section above).
 
 ## How It Works
 
