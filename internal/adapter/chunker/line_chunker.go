@@ -1,0 +1,123 @@
+package chunker
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"strings"
+
+	"rag/internal/adapter/analyzer"
+	"rag/internal/domain"
+)
+
+// LineChunker splits documents into line-based chunks with token awareness.
+type LineChunker struct {
+	maxTokens int
+	overlap   int
+	tokenizer *analyzer.Tokenizer
+}
+
+// NewLineChunker creates a new line-based chunker.
+func NewLineChunker(maxTokens, overlap int, tokenizer *analyzer.Tokenizer) *LineChunker {
+	return &LineChunker{
+		maxTokens: maxTokens,
+		overlap:   overlap,
+		tokenizer: tokenizer,
+	}
+}
+
+// Chunk splits a document's content into chunks.
+func (c *LineChunker) Chunk(doc domain.Document, content string) ([]domain.Chunk, error) {
+	lines := strings.Split(content, "\n")
+	if len(lines) == 0 {
+		return nil, nil
+	}
+
+	var chunks []domain.Chunk
+	startLine := 0
+
+	for startLine < len(lines) {
+		// Find the end line for this chunk
+		endLine := startLine
+		currentTokens := 0
+		var chunkText strings.Builder
+
+		for endLine < len(lines) {
+			lineText := lines[endLine]
+			lineTokens := c.tokenizer.CountTokens(lineText)
+
+			// Check if adding this line would exceed the limit
+			if currentTokens > 0 && currentTokens+lineTokens > c.maxTokens {
+				break
+			}
+
+			if chunkText.Len() > 0 {
+				chunkText.WriteString("\n")
+			}
+			chunkText.WriteString(lineText)
+			currentTokens += lineTokens
+			endLine++
+		}
+
+		// Ensure we make progress even if a single line exceeds maxTokens
+		if endLine == startLine {
+			if chunkText.Len() > 0 {
+				chunkText.WriteString("\n")
+			}
+			chunkText.WriteString(lines[endLine])
+			endLine++
+		}
+
+		text := chunkText.String()
+		tokens := c.tokenizer.Tokenize(text)
+
+		chunk := domain.Chunk{
+			ID:        generateChunkID(doc.ID, startLine, endLine),
+			DocID:     doc.ID,
+			StartLine: startLine + 1, // 1-indexed for display
+			EndLine:   endLine,       // 1-indexed, inclusive
+			Tokens:    tokens,
+			Text:      text,
+		}
+		chunks = append(chunks, chunk)
+
+		// Move start with overlap, but ensure we always make progress
+		overlapLines := c.calculateOverlapLines(lines, startLine, endLine)
+		newStart := endLine - overlapLines
+		// Ensure we always advance at least one line to avoid infinite loops
+		if newStart <= startLine {
+			newStart = startLine + 1
+		}
+		if newStart >= endLine {
+			newStart = endLine
+		}
+		startLine = newStart
+	}
+
+	return chunks, nil
+}
+
+// calculateOverlapLines determines how many lines to overlap based on token count.
+func (c *LineChunker) calculateOverlapLines(lines []string, start, end int) int {
+	if c.overlap == 0 {
+		return 0
+	}
+
+	overlapLines := 0
+	tokens := 0
+
+	// Work backwards from end to find overlap
+	for i := end - 1; i >= start && tokens < c.overlap; i-- {
+		tokens += c.tokenizer.CountTokens(lines[i])
+		overlapLines++
+	}
+
+	return overlapLines
+}
+
+// generateChunkID creates a unique ID for a chunk.
+func generateChunkID(docID string, startLine, endLine int) string {
+	data := fmt.Sprintf("%s:%d-%d", docID, startLine, endLine)
+	hash := sha256.Sum256([]byte(data))
+	return hex.EncodeToString(hash[:8])
+}

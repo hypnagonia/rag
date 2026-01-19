@@ -1,0 +1,69 @@
+# RAG Context Compressor Configuration
+
+index:
+  # File patterns to include (glob syntax)
+  includes:
+    - "**/*.go"
+    - "**/*.py"
+    - "**/*.js"
+    - "**/*.ts"
+    - "**/*.java"
+    - "**/*.c"
+    - "**/*.cpp"
+    - "**/*.h"
+    - "**/*.rs"
+    - "**/*.md"
+    - "**/*.txt"
+
+  # File patterns to exclude
+  excludes:
+    - "**/node_modules/**"
+    - "**/vendor/**"
+    - "**/.git/**"
+    - "**/dist/**"
+    - "**/build/**"
+    - "**/__pycache__/**"
+    - "**/*.min.js"
+
+  # Language detection mode: "auto" or specific language
+  language: auto
+
+  # Enable Porter stemming for better recall
+  stemming: true
+
+  # Maximum tokens per chunk
+  chunk_tokens: 512
+
+  # Token overlap between chunks
+  chunk_overlap: 50
+
+  # BM25 parameters
+  k1: 1.2
+  b: 0.75
+
+retrieve:
+  # Number of top results to return
+  top_k: 20
+
+  # MMR lambda parameter (higher = more relevance, lower = more diversity)
+  mmr_lambda: 0.7
+
+  # Jaccard similarity threshold for deduplication
+  dedup_jaccard: 0.8
+
+pack:
+  # Maximum token budget for packed context
+  token_budget: 4000
+
+  # Boost for recently modified files (0-1)
+  recency_boost: 0.1
+
+  # Enable summarization (requires LLM)
+  summarize: false
+
+  # Output format: "json" or "text"
+  output: json
+
+logging:
+  # Log level: debug, info, warn, error
+  level: info
