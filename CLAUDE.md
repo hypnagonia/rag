@@ -83,4 +83,7 @@ Flags: `-fast` (1 LLM call), `-expand` (query expansion), `-v` (verbose)
   - add all changes and commit them 
   - git push
   - create a remote PR
+  - merge it to main
+  - delete this branch
   - switch back to main
+  - pull updated main

@@ -28,7 +28,7 @@ const (
 	promptExpandQuery = `Generate 3 search queries to find relevant passages. Output one query per line, no numbering.
 	Query must not contain the answer to the question!
 	Rules:
-	- Use full names
+	- Try to use different forms of names, nicknames, synonyms, etc.
 	- Include HOW events happened 
 	- One query should focus on the scene itself with descriptive words
 `
