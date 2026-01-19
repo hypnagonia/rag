@@ -24,6 +24,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"flag"
@@ -31,6 +32,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -49,8 +52,10 @@ const (
 	promptExpandQuery = `Generate 2-3 search queries to find relevant passages for the given question. Output one query per line, no numbering.`
 
 	promptEvaluateContext = `Given text passages and a question, respond in JSON:
-{"sufficient":bool,"reason":"brief","expand":["topic or term"],"queries":["search term"]}
-Use "expand" for specific topics you see referenced. Use "queries" for new searches.`
+{"sufficient":bool,"reason":"brief","expand":["topic"],"queries":["search"],"expandLines":["file:line"]}
+- "expand": search for related topics mentioned in context
+- "queries": new search terms
+- "expandLines": show more lines around a passage, e.g. ["3.txt:17650"] to see lines before/after line 17650`
 
 	promptGenerateAnswer = `Answer the question using ONLY the provided context. Be concise. ALWAYS cite sources as [filename:lines] for every fact you mention.`
 
@@ -229,36 +234,41 @@ func (c *LLMClient) GenerateWithSystem(systemPrompt, userPrompt string) (string,
 
 // AgenticRAG orchestrates the agentic RAG workflow
 type AgenticRAG struct {
-	llm          *LLMClient
-	retrieveUC   *usecase.RetrieveUseCase
-	packUC       *usecase.PackUseCase
-	store        *store.BoltStore
-	maxIters     int
-	topK         int
-	tokenBudget  int  // token budget for context packing
-	verbose      bool
-	expandQuery  bool // whether to use LLM for query expansion
-	fastMode     bool // skip iterative evaluation, just search and answer
+	llm           *LLMClient
+	retrieveUC    *usecase.RetrieveUseCase
+	packUC        *usecase.PackUseCase
+	store         *store.BoltStore
+	indexPath     string            // path to indexed directory (for reading files)
+	expandedLines map[string]string // expanded line contexts keyed by "file:line"
+	maxIters      int
+	topK          int
+	tokenBudget   int  // token budget for context packing
+	verbose       bool
+	expandQuery   bool // whether to use LLM for query expansion
+	fastMode      bool // skip iterative evaluation, just search and answer
 }
 
 // NewAgenticRAG creates a new agentic RAG instance
 func NewAgenticRAG(llm *LLMClient, retrieveUC *usecase.RetrieveUseCase, packUC *usecase.PackUseCase, store *store.BoltStore, opts AgenticRAGOptions) *AgenticRAG {
 	return &AgenticRAG{
-		llm:          llm,
-		retrieveUC:   retrieveUC,
-		packUC:       packUC,
-		store:        store,
-		maxIters:     opts.MaxIters,
-		topK:         opts.TopK,
-		tokenBudget:  opts.TokenBudget,
-		verbose:      opts.Verbose,
-		expandQuery:  opts.ExpandQuery,
-		fastMode:     opts.FastMode,
+		llm:           llm,
+		retrieveUC:    retrieveUC,
+		packUC:        packUC,
+		store:         store,
+		indexPath:     opts.IndexPath,
+		expandedLines: make(map[string]string),
+		maxIters:      opts.MaxIters,
+		topK:          opts.TopK,
+		tokenBudget:   opts.TokenBudget,
+		verbose:       opts.Verbose,
+		expandQuery:   opts.ExpandQuery,
+		fastMode:      opts.FastMode,
 	}
 }
 
 // AgenticRAGOptions contains configuration for AgenticRAG
 type AgenticRAGOptions struct {
+	IndexPath   string
 	MaxIters    int
 	TopK        int
 	TokenBudget int
@@ -478,7 +488,32 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 			}
 		}
 
-		// Step 4b: Need more context - generate new queries
+		// Step 4b: Handle line expansion requests (read more lines around a passage)
+		if len(decision.ExpandLines) > 0 {
+			if a.verbose {
+				fmt.Printf("\n📖 LLM requested line expansion:\n")
+				for i, item := range decision.ExpandLines {
+					fmt.Printf("   %d. %s\n", i+1, item)
+				}
+			} else {
+				fmt.Printf("📖 Expanding lines (%d locations)...", len(decision.ExpandLines))
+			}
+
+			newCount := a.expandLinesAround(decision.ExpandLines, 50)
+
+			if a.verbose {
+				fmt.Printf("   ✓ Expanded %d file locations\n", newCount)
+			} else {
+				fmt.Printf(" +%d expanded\n", newCount)
+			}
+
+			// If we got new expanded content, re-evaluate
+			if newCount > 0 {
+				continue
+			}
+		}
+
+		// Step 4c: Need more context - generate new queries
 		if len(decision.SuggestedQueries) > 0 {
 			if a.verbose {
 				fmt.Printf("\n🔄 LLM suggested new queries:\n")
@@ -487,8 +522,8 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 				}
 			}
 			expandedQueries = decision.SuggestedQueries
-		} else if len(decision.ExpandContext) == 0 {
-			// Only stop if we had neither expansion nor queries
+		} else if len(decision.ExpandContext) == 0 && len(decision.ExpandLines) == 0 {
+			// Only stop if we had no expansion or queries
 			if a.verbose {
 				fmt.Printf("\n⚠️  No new queries or expansion suggested. Stopping iterations.\n")
 			}
@@ -672,6 +707,7 @@ type ContextDecision struct {
 	Reason            string
 	SuggestedQueries  []string
 	ExpandContext     []string // requests to expand context (e.g., "fetch definition of funcX", "show file Y")
+	ExpandLines       []string // requests to show more lines around a passage (e.g., "file.txt:100")
 }
 
 // evaluateContext asks LLM if the current context is sufficient
@@ -702,6 +738,7 @@ func (a *AgenticRAG) evaluateContext(query, context string) (*ContextDecision, e
 		Reason           string   `json:"reason"`
 		ExpandContext    []string `json:"expand"`
 		SuggestedQueries []string `json:"queries"`
+		ExpandLines      []string `json:"expandLines"`
 	}
 
 	if err := json.Unmarshal([]byte(jsonStr), &decision); err != nil {
@@ -719,6 +756,7 @@ func (a *AgenticRAG) evaluateContext(query, context string) (*ContextDecision, e
 		Reason:           decision.Reason,
 		ExpandContext:    decision.ExpandContext,
 		SuggestedQueries: decision.SuggestedQueries,
+		ExpandLines:      decision.ExpandLines,
 	}, nil
 }
 
@@ -757,6 +795,113 @@ func (a *AgenticRAG) expandContextItems(requests []string) []domain.ScoredChunk 
 	return results
 }
 
+// expandLinesAround reads additional lines from files around specified locations.
+// Format: "filename:line" e.g. "3.txt:17650"
+func (a *AgenticRAG) expandLinesAround(requests []string, extraLines int) int {
+	if extraLines <= 0 {
+		extraLines = 50 // default: 50 lines before and after
+	}
+
+	added := 0
+	for _, req := range requests {
+		// Parse "filename:line" format
+		parts := strings.SplitN(req, ":", 2)
+		if len(parts) != 2 {
+			if a.verbose {
+				fmt.Printf("   ⚠️  Invalid format: %s (expected file:line)\n", req)
+			}
+			continue
+		}
+
+		filename := parts[0]
+		centerLine, err := strconv.Atoi(parts[1])
+		if err != nil {
+			if a.verbose {
+				fmt.Printf("   ⚠️  Invalid line number: %s\n", parts[1])
+			}
+			continue
+		}
+
+		// Find the full path to the file
+		fullPath := filepath.Join(a.indexPath, filename)
+		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+			// Try to find file by searching docs
+			docs, _ := a.store.ListDocs()
+			for _, doc := range docs {
+				if strings.HasSuffix(doc.Path, filename) || strings.Contains(doc.Path, filename) {
+					fullPath = doc.Path
+					break
+				}
+			}
+		}
+
+		if a.verbose {
+			fmt.Printf("   📖 Expanding lines around %s:%d (±%d lines)\n", filename, centerLine, extraLines)
+		}
+
+		// Read the expanded context
+		text, startLine, endLine, err := readLinesAround(fullPath, centerLine, extraLines)
+		if err != nil {
+			if a.verbose {
+				fmt.Printf("      ❌ Error: %v\n", err)
+			}
+			continue
+		}
+
+		// Store in expandedLines map
+		key := fmt.Sprintf("%s:%d", filename, centerLine)
+		a.expandedLines[key] = fmt.Sprintf("=== %s:L%d-%d (expanded) ===\n%s", filename, startLine, endLine, text)
+		added++
+
+		if a.verbose {
+			fmt.Printf("      ✓ Read lines %d-%d (%d chars)\n", startLine, endLine, len(text))
+		}
+	}
+
+	return added
+}
+
+// readLinesAround reads lines around a center line from a file
+func readLinesAround(path string, centerLine, extraLines int) (string, int, int, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", 0, 0, err
+	}
+	defer file.Close()
+
+	startLine := centerLine - extraLines
+	if startLine < 1 {
+		startLine = 1
+	}
+	endLine := centerLine + extraLines
+
+	scanner := bufio.NewScanner(file)
+	var lines []string
+	lineNum := 0
+
+	for scanner.Scan() {
+		lineNum++
+		if lineNum >= startLine && lineNum <= endLine {
+			lines = append(lines, scanner.Text())
+		}
+		if lineNum > endLine {
+			break
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return "", 0, 0, err
+	}
+
+	// Adjust endLine if file was shorter
+	actualEnd := startLine + len(lines) - 1
+	if actualEnd < endLine {
+		endLine = actualEnd
+	}
+
+	return strings.Join(lines, "\n"), startLine, endLine, nil
+}
+
 // buildContext creates a text context from chunks using the pack feature
 func (a *AgenticRAG) buildContext(chunks map[string]domain.ScoredChunk, query string) string {
 	// Convert map to slice
@@ -780,6 +925,11 @@ func (a *AgenticRAG) buildContextFromSlice(chunks []domain.ScoredChunk, query st
 			sb.WriteString(c.Chunk.Text)
 			sb.WriteString("\n\n")
 		}
+		// Add expanded lines
+		for _, expanded := range a.expandedLines {
+			sb.WriteString(expanded)
+			sb.WriteString("\n\n")
+		}
 		return sb.String()
 	}
 
@@ -789,6 +939,17 @@ func (a *AgenticRAG) buildContextFromSlice(chunks []domain.ScoredChunk, query st
 		sb.WriteString(fmt.Sprintf("=== %s:%s ===\n", s.Path, s.Range))
 		sb.WriteString(s.Text)
 		sb.WriteString("\n\n")
+	}
+
+	// Add expanded lines (from LLM requests)
+	if len(a.expandedLines) > 0 {
+		for _, expanded := range a.expandedLines {
+			sb.WriteString(expanded)
+			sb.WriteString("\n\n")
+		}
+		if a.verbose {
+			fmt.Printf("   📖 Added %d expanded line contexts\n", len(a.expandedLines))
+		}
 	}
 
 	if a.verbose {
@@ -994,6 +1155,7 @@ func main() {
 
 	// Create and run agentic RAG
 	agent := NewAgenticRAG(llm, retrieveUC, packUC, st, AgenticRAGOptions{
+		IndexPath:   *indexPath,
 		MaxIters:    *maxIters,
 		TopK:        *topK,
 		TokenBudget: *budget,
