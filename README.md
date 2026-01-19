@@ -4,8 +4,6 @@ A CLI tool for indexing local files using BM25 lexical retrieval, ranking result
 
 ## Example: Querying Game of Thrones (5 books, ~2M tokens)
 
----
-
 ```bash
 $ rag query -q "How did Ned Stark die" -index ./books -expand
 ```
@@ -15,8 +13,6 @@ $ rag query -q "How did Ned Stark die" -index ./books -expand
 > Great Sept of Baelor [1.txt:16974-16996].
 >
 > **~3k tokens** (with RAG) vs **~2M tokens** (without RAG)
-
----
 
 ```bash
 $ rag query -q "Joffrey death" -index ./books -expand
@@ -29,8 +25,6 @@ $ rag query -q "Joffrey death" -index ./books -expand
 >
 > **~4k tokens** (with RAG) vs **~2M tokens** (without RAG)
 
----
-
 ```bash
 $ rag query -q "Red Wedding Robb Stark murdered" -index ./books -expand
 ```
@@ -38,8 +32,6 @@ $ rag query -q "Red Wedding Robb Stark murdered" -index ./books -expand
 > during his uncle's wedding, an event known as the Red Wedding [4.txt:21098-21138].
 >
 > **~3k tokens** (with RAG) vs **~2M tokens** (without RAG)
-
----
 
 ```bash
 $ rag query -q "How did Drogo die" -index ./books -expand
