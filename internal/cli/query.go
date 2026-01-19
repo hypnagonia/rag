@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 	"rag/config"
 	"rag/internal/adapter/analyzer"
 	"rag/internal/adapter/embedding"
@@ -284,14 +285,18 @@ func setupHybridRetrieval(st *store.BoltStore, cfg *config.Config) (port.Embedde
 }
 
 func askYesNo(prompt string) bool {
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		fmt.Printf("%s [auto: yes]\n", prompt)
+		return true
+	}
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Printf("%s [y/N]: ", prompt)
+	fmt.Printf("%s [Y/n]: ", prompt)
 	response, err := reader.ReadString('\n')
 	if err != nil {
-		return false
+		return true
 	}
 	response = strings.TrimSpace(strings.ToLower(response))
-	return response == "y" || response == "yes"
+	return response != "n" && response != "no"
 }
 
 func checkForChanges(st *store.BoltStore) []string {
