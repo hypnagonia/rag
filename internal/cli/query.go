@@ -18,11 +18,12 @@ import (
 )
 
 var (
-	queryText    string
-	queryTopK    int
-	queryJSON    bool
-	queryNoMMR   bool
-	queryContext int
+	queryText     string
+	queryTopK     int
+	queryJSON     bool
+	queryNoMMR    bool
+	queryContext  int
+	querySemantic bool
 )
 
 var queryCmd = &cobra.Command{
@@ -30,9 +31,14 @@ var queryCmd = &cobra.Command{
 	Short: "Search indexed files",
 	Long: `Search for relevant code chunks using BM25 retrieval with MMR deduplication.
 
+Search modes:
+  - Default: BM25 keyword search (or hybrid if configured)
+  - --semantic: Uses only embedding/vector search (requires embeddings enabled)
+
 Examples:
   rag query -q "authentication handler"
-  rag query -q "database connection" --top-k 10 --json`,
+  rag query -q "database connection" --top-k 10 --json
+  rag query -q "how to handle errors" --semantic`,
 	RunE: runQuery,
 }
 
@@ -43,6 +49,7 @@ func init() {
 	queryCmd.Flags().BoolVar(&queryJSON, "json", false, "output as JSON")
 	queryCmd.Flags().BoolVar(&queryNoMMR, "no-mmr", false, "disable MMR reranking")
 	queryCmd.Flags().IntVarP(&queryContext, "context", "c", 0, "expand results by N lines before/after")
+	queryCmd.Flags().BoolVar(&querySemantic, "semantic", false, "use only embedding/vector search (no BM25)")
 	queryCmd.MarkFlagRequired("query")
 }
 
@@ -67,7 +74,17 @@ func runQuery(cmd *cobra.Command, args []string) error {
 	mmr := retriever.NewMMRReranker(cfg.Retrieve.MMRLambda, cfg.Retrieve.DedupJaccard)
 
 	var searchRetriever port.Retriever = bm25
-	if cfg.Retrieve.HybridEnabled && cfg.Embedding.Enabled {
+
+	if querySemantic {
+		if !cfg.Embedding.Enabled {
+			return fmt.Errorf("semantic search requires embeddings. Enable in rag.yaml:\n  embedding:\n    enabled: true\n    provider: ollama\n    model: nomic-embed-text")
+		}
+		embedder, vectorStore, err := setupHybridRetrieval(st, cfg)
+		if err != nil {
+			return fmt.Errorf("semantic search unavailable: %v", err)
+		}
+		searchRetriever = retriever.NewSemanticRetriever(vectorStore, embedder, st)
+	} else if cfg.Retrieve.HybridEnabled && cfg.Embedding.Enabled {
 		embedder, vectorStore, err := setupHybridRetrieval(st, cfg)
 		if err != nil {
 			fmt.Printf("Warning: hybrid retrieval unavailable: %v\n", err)
