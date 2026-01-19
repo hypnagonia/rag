@@ -1,15 +1,18 @@
 // Agentic RAG Example
 //
-// This example demonstrates an agentic RAG workflow:
+// A general-purpose agentic RAG (Retrieval-Augmented Generation) tool that works
+// with any indexed content: books, articles, documentation, code, or any text.
+//
+// Workflow:
 // 1. Accept a search query from the user
-// 2. Use an LLM to expand/refine the query
-// 3. Search the RAG index
+// 2. Optionally expand the query using LLM
+// 3. Search the RAG index for relevant passages
 // 4. Ask LLM if the context is sufficient or needs expansion
-// 5. Iterate until satisfied, then present results
+// 5. Iterate until satisfied, then generate an answer
 //
 // Usage:
 //   export DEEPSEEK_API_KEY=your-key  # or OPENAI_API_KEY
-//   go run main.go -q "how does authentication work" -index /path/to/project
+//   go run main.go -q "what is the main theme" -index /path/to/indexed/content
 //
 // Supported LLM providers (OpenAI-compatible APIs):
 //   - DeepSeek: -provider deepseek -model deepseek-chat
@@ -39,36 +42,21 @@ import (
 
 // Prompt templates for LLM interactions (kept short to minimize tokens)
 const (
-	promptExpandQuery = `Generate 2-3 code search queries for the given question. Output one query per line, no numbering.`
+	promptExpandQuery = `Generate 2-3 search queries to find relevant passages for the given question. Output one query per line, no numbering.`
 
-	promptEvaluateContext = `Given code snippets and a question, respond in JSON:
-{"sufficient":bool,"reason":"brief","expand":["funcName"],"queries":["search term"]}
-Use "expand" for specific items you see referenced. Use "queries" for new searches.`
+	promptEvaluateContext = `Given text passages and a question, respond in JSON:
+{"sufficient":bool,"reason":"brief","expand":["topic or term"],"queries":["search term"]}
+Use "expand" for specific topics you see referenced. Use "queries" for new searches.`
 
-	promptGenerateAnswer = `Answer the code question using ONLY the provided context. Be concise.`
+	promptGenerateAnswer = `Answer the question using ONLY the provided context. Be concise and cite sources when possible.`
 
 	tokenMethodologyText = `
    Tokens are estimated using a ratio of ~4 characters per token.
-   This is a conservative estimate for code, which typically has:
-   - Shorter words than natural language
-   - Many symbols and operators (each often = 1 token)
-   - Indentation and whitespace
+   This is a reasonable estimate for English text. Actual tokenization
+   varies by model (GPT uses BPE, others use similar subword methods).
 
-   Actual tokenization varies by model:
-   - GPT models use BPE (Byte Pair Encoding)
-   - DeepSeek uses similar subword tokenization
-   - Common identifiers may be single tokens
-   - Rare names get split into multiple tokens
-
-   For precise counts, use the model's tokenizer:
-   - OpenAI: tiktoken library
-   - DeepSeek: their tokenizer API
-
-   The comparison shows that RAG retrieves only relevant code chunks
-   instead of sending the entire codebase, dramatically reducing:
-   - Token usage (and thus API costs)
-   - Latency (smaller context = faster processing)
-   - Risk of hitting context length limits
+   RAG retrieves only relevant passages instead of sending entire
+   documents, dramatically reducing token usage and API costs.
 `
 )
 
@@ -281,9 +269,9 @@ type SearchResult struct {
 	Answer  string // LLM-generated answer based on context
 }
 
-// CodebaseStats holds statistics about the indexed codebase
-type CodebaseStats struct {
-	TotalFiles      int
+// ContentStats holds statistics about the indexed content
+type ContentStats struct {
+	TotalDocs       int
 	TotalChunks     int
 	TotalChars      int
 	TotalTokensEst  int
@@ -536,11 +524,11 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 // generateAnswer asks LLM to answer the question based on retrieved context
 func (a *AgenticRAG) generateAnswer(query, context string) (string, error) {
 	truncatedContext := truncateContext(context, 4000) // reduced from 8000
-	userPrompt := fmt.Sprintf("Q: %s\n\nCode:\n%s", query, truncatedContext)
+	userPrompt := fmt.Sprintf("Q: %s\n\nContext:\n%s", query, truncatedContext)
 
 	if a.verbose {
 		fmt.Printf("\n📤 [LLM] Generating final answer...\n")
-		a.printPromptBox(promptGenerateAnswer, fmt.Sprintf("Question: %s\n\nCode Context: (%d chars, omitted)", query, len(truncatedContext)))
+		a.printPromptBox(promptGenerateAnswer, fmt.Sprintf("Question: %s\n\nContext: (%d chars, omitted)", query, len(truncatedContext)))
 	}
 
 	response, err := a.llm.GenerateWithSystem(promptGenerateAnswer, userPrompt)
@@ -649,7 +637,7 @@ func (a *AgenticRAG) printResponseBox(title, response string) {
 
 // doExpandQuery uses LLM to generate expanded search queries
 func (a *AgenticRAG) doExpandQuery(query string) ([]string, error) {
-	userPrompt := fmt.Sprintf("Expand this code search query: %s", query)
+	userPrompt := fmt.Sprintf("Expand this search query: %s", query)
 
 	if a.verbose {
 		a.printPromptBox(promptExpandQuery, userPrompt)
@@ -696,10 +684,10 @@ type ContextDecision struct {
 func (a *AgenticRAG) evaluateContext(query, context string) (*ContextDecision, error) {
 	// Send truncated context - reduced from 6000 to 2000 for token savings
 	truncatedContext := truncateContext(context, 2000)
-	userPrompt := fmt.Sprintf("Q: %s\n\nCode:\n%s\n\nSufficient?", query, truncatedContext)
+	userPrompt := fmt.Sprintf("Q: %s\n\nContext:\n%s\n\nSufficient?", query, truncatedContext)
 
 	if a.verbose {
-		a.printPromptBox(promptEvaluateContext, fmt.Sprintf("Q: %s\n\nCode: (%d chars)", query, len(truncatedContext)))
+		a.printPromptBox(promptEvaluateContext, fmt.Sprintf("Q: %s\n\nContext: (%d chars)", query, len(truncatedContext)))
 	}
 
 	response, err := a.llm.GenerateWithSystem(promptEvaluateContext, userPrompt)
@@ -819,15 +807,15 @@ func truncateString(s string, maxLen int) string {
 	return s[:maxLen-3] + "..."
 }
 
-// getCodebaseStats calculates total size of indexed codebase
-func getCodebaseStats(st *store.BoltStore) CodebaseStats {
-	stats := CodebaseStats{}
+// getContentStats calculates total size of indexed content
+func getContentStats(st *store.BoltStore) ContentStats {
+	stats := ContentStats{}
 
 	docs, err := st.ListDocs()
 	if err != nil {
 		return stats
 	}
-	stats.TotalFiles = len(docs)
+	stats.TotalDocs = len(docs)
 
 	for _, doc := range docs {
 		chunks, err := st.GetChunksByDoc(doc.ID)
@@ -840,7 +828,7 @@ func getCodebaseStats(st *store.BoltStore) CodebaseStats {
 		}
 	}
 
-	// Estimate tokens: ~4 chars per token for code (conservative)
+	// Estimate tokens: ~4 chars per token (conservative)
 	stats.TotalTokensEst = stats.TotalChars / 4
 
 	return stats
@@ -867,7 +855,7 @@ func main() {
 	topK := flag.Int("k", 5, "Number of results per query")
 	maxIters := flag.Int("max-iters", 2, "Maximum iterations")
 	verbose := flag.Bool("v", false, "Verbose output")
-	fullOutput := flag.Bool("full", false, "Show full code content (no truncation)")
+	fullOutput := flag.Bool("full", false, "Show full content (no truncation)")
 	maxResults := flag.Int("max-results", 10, "Maximum results to display (0 = all)")
 	expand := flag.Bool("expand", false, "Use LLM to expand query (uses more tokens)")
 	fast := flag.Bool("fast", false, "Fast mode: search once and answer (minimal tokens)")
@@ -879,9 +867,9 @@ func main() {
 		fmt.Println("\nOptions:")
 		flag.PrintDefaults()
 		fmt.Println("\nExamples:")
-		fmt.Println("  go run main.go -q \"how does authentication work\"")
-		fmt.Println("  go run main.go -q \"auth\" -fast              # minimal tokens")
-		fmt.Println("  go run main.go -q \"auth\" -expand -v         # full agentic mode")
+		fmt.Println("  go run main.go -q \"what is the main theme\"")
+		fmt.Println("  go run main.go -q \"summary\" -fast           # minimal tokens")
+		fmt.Println("  go run main.go -q \"explain chapter 3\" -expand -v  # full agentic mode")
 		os.Exit(1)
 	}
 
@@ -959,7 +947,7 @@ func main() {
 				displayCount = *maxResults
 			}
 
-			fmt.Printf("Found %d relevant code sections", len(result.Chunks))
+			fmt.Printf("Found %d relevant passages", len(result.Chunks))
 			if displayCount < len(result.Chunks) {
 				fmt.Printf(" (showing top %d)", displayCount)
 			}
@@ -975,7 +963,7 @@ func main() {
 				fmt.Printf("│ Lines: %d-%d | Score: %.3f\n", c.Chunk.StartLine, c.Chunk.EndLine, c.Score)
 				fmt.Printf("├" + strings.Repeat("─", 69) + "\n")
 
-				// Print code content
+				// Print content
 				text := c.Chunk.Text
 				if !*fullOutput && len(text) > 1000 {
 					text = text[:1000] + "\n... (use -full to see complete content)"
@@ -1002,9 +990,9 @@ func main() {
 	fmt.Println(result.Answer)
 
 	// Always show token comparison summary
-	codebaseStats := getCodebaseStats(st)
+	contentStats := getContentStats(st)
 	llmStats := llm.GetStats()
-	fullContextTokens := codebaseStats.TotalTokensEst + 100 // +100 for query/system prompt
+	fullContextTokens := contentStats.TotalTokensEst + 100 // +100 for query/system prompt
 	tokensUsed := llmStats.TotalInputTokens + llmStats.TotalOutputTokens
 
 	fmt.Printf("\n%s\n", strings.Repeat("─", 70))
@@ -1028,22 +1016,22 @@ func main() {
 		fmt.Printf("   Est. output tokens:     ~%s\n", formatNumber(llmStats.TotalOutputTokens))
 		fmt.Printf("   Est. total tokens:      ~%s\n", formatNumber(tokensUsed))
 
-		// Print comparison with full codebase
+		// Print comparison with full content
 		fmt.Printf("\n%s\n", strings.Repeat("─", 70))
 		fmt.Printf("📈 RAG EFFICIENCY COMPARISON (detailed)\n")
 		fmt.Printf("%s\n", strings.Repeat("─", 70))
-		fmt.Printf("\n   📁 Indexed Codebase:\n")
-		fmt.Printf("      Files:               %d\n", codebaseStats.TotalFiles)
-		fmt.Printf("      Chunks:              %d\n", codebaseStats.TotalChunks)
-		fmt.Printf("      Total characters:    %s\n", formatNumber(codebaseStats.TotalChars))
-		fmt.Printf("      Est. tokens:         ~%s\n", formatNumber(codebaseStats.TotalTokensEst))
+		fmt.Printf("\n   📁 Indexed Content:\n")
+		fmt.Printf("      Documents:           %d\n", contentStats.TotalDocs)
+		fmt.Printf("      Chunks:              %d\n", contentStats.TotalChunks)
+		fmt.Printf("      Total characters:    %s\n", formatNumber(contentStats.TotalChars))
+		fmt.Printf("      Est. tokens:         ~%s\n", formatNumber(contentStats.TotalTokensEst))
 
 		fmt.Printf("\n   🎯 With RAG (actual usage):\n")
 		fmt.Printf("      Context sent to LLM: %s chars\n", formatNumber(llmStats.TotalInputChars))
 		fmt.Printf("      Est. tokens used:    ~%s\n", formatNumber(tokensUsed))
 
-		fmt.Printf("\n   ❌ Without RAG (full codebase):\n")
-		fmt.Printf("      Would need to send:  %s chars\n", formatNumber(codebaseStats.TotalChars))
+		fmt.Printf("\n   ❌ Without RAG (full content):\n")
+		fmt.Printf("      Would need to send:  %s chars\n", formatNumber(contentStats.TotalChars))
 		fmt.Printf("      Est. tokens needed:  ~%s\n", formatNumber(fullContextTokens))
 
 		// Calculate savings

@@ -1,37 +1,37 @@
 # Agentic RAG Example
 
-This example demonstrates an agentic RAG (Retrieval-Augmented Generation) workflow that iteratively refines searches using an LLM.
+A general-purpose agentic RAG (Retrieval-Augmented Generation) tool that works with any indexed content: books, articles, documentation, or any text.
 
 ## Workflow
 
-1. **Query Expansion**: LLM generates alternative search queries from your original question
-2. **Search**: Executes searches against the RAG index with all queries
+1. **Query Expansion** (optional): LLM generates alternative search queries
+2. **Search**: Executes searches against the RAG index
 3. **Context Evaluation**: LLM evaluates if retrieved context is sufficient
-4. **Iteration**: If insufficient, LLM suggests new queries and the process repeats
-5. **Results**: Returns the most relevant code sections
+4. **Iteration**: If insufficient, LLM suggests new queries or context expansion
+5. **Answer**: Generates a final answer based on retrieved passages
 
 ## Usage
 
-First, index your codebase:
+First, index your content:
 ```bash
-rag index /path/to/your/project
+rag index /path/to/your/content
 ```
 
 Then run the agentic search:
 ```bash
-# Using DeepSeek (default)
+# Fast mode - minimal tokens (recommended for simple queries)
 export DEEPSEEK_API_KEY=your-key
-go run main.go -q "how does authentication work" -index /path/to/your/project
+go run main.go -q "what is the main theme" -index /path/to/content -fast
 
-# Using OpenAI
-export OPENAI_API_KEY=your-key
-go run main.go -q "database connection handling" -provider openai -model gpt-4o-mini
+# Standard mode - iterative refinement
+go run main.go -q "explain the key concepts" -index /path/to/content
 
-# Using local Ollama
-go run main.go -q "error handling patterns" -provider local -model llama2
+# Full agentic mode - query expansion + iteration
+go run main.go -q "compare chapters 1 and 3" -index /path/to/content -expand
 
-# Verbose mode to see the agentic process
-go run main.go -q "how are requests routed" -v
+# With different providers
+go run main.go -q "summarize" -provider openai -model gpt-4o-mini
+go run main.go -q "summarize" -provider local -model llama2
 ```
 
 ## Options
@@ -44,9 +44,19 @@ go run main.go -q "how are requests routed" -v
 | `-model` | `deepseek-chat` | Model name |
 | `-base-url` | (auto) | Custom API base URL |
 | `-api-key` | (env var) | API key (or use env var) |
-| `-k` | `10` | Results per query |
-| `-max-iters` | `3` | Maximum search iterations |
+| `-k` | `5` | Results per query |
+| `-max-iters` | `2` | Maximum search iterations |
+| `-fast` | `false` | Fast mode: 1 LLM call only |
+| `-expand` | `false` | Use LLM to expand queries |
 | `-v` | `false` | Verbose output |
+
+## Modes and Token Usage
+
+| Mode | LLM Calls | Est. Tokens | Use Case |
+|------|-----------|-------------|----------|
+| `-fast` | 1 | ~1k | Simple factual queries |
+| default | 2-3 | ~2-3k | Most queries |
+| `-expand` | 4-6 | ~4-6k | Complex/ambiguous queries |
 
 ## Supported Providers
 
@@ -61,24 +71,22 @@ For other OpenAI-compatible APIs, use `-base-url` and `-api-key` flags.
 ## Example Output
 
 ```
-🚀 Starting agentic RAG search...
+🚀 Agentic RAG [fast (1 LLM call)]
+┌─────────────────────────────────────────────────────────────────────
+│ LLM: deepseek/deepseek-chat | Index: ./books
+│ top-k: 5 | expand: false | fast: true
+└─────────────────────────────────────────────────────────────────────
+🔎 Searching... 5 chunks
+💡 Generating answer... done
 
-🔍 Original query: how does authentication work
-📝 Expanded queries: [how does authentication work, auth middleware implementation, login handler user verification]
+══════════════════════════════════════════════════════════════════════
+💡 ANSWER
+══════════════════════════════════════════════════════════════════════
 
---- Iteration 1 ---
-📚 Found 15 unique chunks
-🤔 LLM decision: sufficient=true, reason=Found auth middleware and login handlers
+The main theme of the book is...
 
-============================================================
-📋 RESULTS for: how does authentication work
-============================================================
-
-Found 15 relevant code sections:
-
-─── [1] internal/auth/middleware.go:L12-45 (score: 8.234) ───
-func AuthMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        token := r.Header.Get("Authorization")
-        ...
+──────────────────────────────────────────────────────────────────────
+📊 TOKEN USAGE: ~1k tokens (with RAG) vs ~50k tokens (without RAG)
+   💰 RAG saved 50.0x tokens
+──────────────────────────────────────────────────────────────────────
 ```

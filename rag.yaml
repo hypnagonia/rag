@@ -43,7 +43,7 @@ index:
 
 retrieve:
   # Number of top results to return
-  top_k: 4
+  top_k: 10
 
   # MMR lambda parameter (higher = more relevance, lower = more diversity)
   mmr_lambda: 0.7
