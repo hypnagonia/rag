@@ -50,6 +50,11 @@ import (
 // Prompt templates for LLM interactions (kept short to minimize tokens)
 const (
 	promptExpandQuery = `Generate 3 search queries to find relevant passages. Output one query per line, no numbering.
+	Query must not contain the answer to the question!
+	Rules:
+	- Use full names
+	- Include HOW events happened 
+	- One query should focus on the scene itself with descriptive words
 `
 
 	promptEvaluateContext = `Given text passages and a question, respond in JSON:
@@ -280,10 +285,11 @@ type AgenticRAGOptions struct {
 
 // SearchResult holds search results with metadata
 type SearchResult struct {
-	Query   string
-	Chunks  []domain.ScoredChunk
-	Context string
-	Answer  string // LLM-generated answer based on context
+	Query       string
+	Chunks      []domain.ScoredChunk
+	Context     string
+	Answer      string   // LLM-generated answer based on context
+	QueriesUsed []string // queries that contributed to the final context
 }
 
 // ContentStats holds statistics about the indexed content
@@ -449,10 +455,11 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 			}
 
 			return &SearchResult{
-				Query:   originalQuery,
-				Chunks:  chunks,
-				Context: context,
-				Answer:  answer,
+				Query:       originalQuery,
+				Chunks:      chunks,
+				Context:     context,
+				Answer:      answer,
+				QueriesUsed: expandedQueries,
 			}, nil
 		}
 
@@ -556,10 +563,11 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 	}
 
 	return &SearchResult{
-		Query:   originalQuery,
-		Chunks:  chunks,
-		Context: context,
-		Answer:  answer,
+		Query:       originalQuery,
+		Chunks:      chunks,
+		Context:     context,
+		Answer:      answer,
+		QueriesUsed: expandedQueries,
 	}, nil
 }
 
@@ -635,10 +643,11 @@ func (a *AgenticRAG) runFastMode(originalQuery string, queries []string) (*Searc
 	}
 
 	return &SearchResult{
-		Query:   originalQuery,
-		Chunks:  chunks,
-		Context: context,
-		Answer:  answer,
+		Query:       originalQuery,
+		Chunks:      chunks,
+		Context:     context,
+		Answer:      answer,
+		QueriesUsed: queries,
 	}, nil
 }
 
@@ -1246,7 +1255,14 @@ func main() {
 	// Print the answer
 	fmt.Printf("\n%s\n", strings.Repeat("═", 70))
 	fmt.Printf("ANSWER\n")
-	fmt.Printf("%s\n\n", strings.Repeat("═", 70))
+	fmt.Printf("%s\n", strings.Repeat("═", 70))
+	if (*verbose || *expand) && len(result.QueriesUsed) > 0 {
+		fmt.Printf("Queries used:\n")
+		for i, q := range result.QueriesUsed {
+			fmt.Printf("  %d. %s\n", i+1, q)
+		}
+		fmt.Println()
+	}
 	fmt.Println(result.Answer)
 
 	// Always show token comparison summary
@@ -1256,18 +1272,18 @@ func main() {
 	tokensUsed := llmStats.TotalInputTokens + llmStats.TotalOutputTokens
 
 	fmt.Printf("\n%s\n", strings.Repeat("─", 70))
-	fmt.Printf("TOKEN USAGE: ~%s tokens (with RAG) vs ~%s tokens (without RAG)\n",
+	fmt.Printf("📊 TOKEN USAGE: ~%s tokens (with RAG) vs ~%s tokens (without RAG)\n",
 		formatNumber(tokensUsed), formatNumber(fullContextTokens))
 	if fullContextTokens > 0 {
 		reduction := float64(fullContextTokens) / float64(max(llmStats.TotalInputTokens, 1))
-		fmt.Printf("   RAG saved %.1fx tokens\n", reduction)
+		fmt.Printf("   💰 RAG saved %.1fx tokens\n", reduction)
 	}
 	fmt.Printf("%s\n", strings.Repeat("─", 70))
 
 	// Show detailed statistics only in verbose mode
 	if *verbose {
 		fmt.Printf("\n%s\n", strings.Repeat("─", 70))
-		fmt.Printf("LLM USAGE STATISTICS (detailed)\n")
+		fmt.Printf("📊 LLM USAGE STATISTICS (detailed)\n")
 		fmt.Printf("%s\n", strings.Repeat("─", 70))
 		fmt.Printf("   Total LLM calls:        %d\n", llmStats.TotalCalls)
 		fmt.Printf("   Input characters:       %s\n", formatNumber(llmStats.TotalInputChars))
@@ -1278,19 +1294,19 @@ func main() {
 
 		// Print comparison with full content
 		fmt.Printf("\n%s\n", strings.Repeat("─", 70))
-		fmt.Printf("RAG EFFICIENCY COMPARISON (detailed)\n")
+		fmt.Printf("📈 RAG EFFICIENCY COMPARISON (detailed)\n")
 		fmt.Printf("%s\n", strings.Repeat("─", 70))
-		fmt.Printf("\n   Indexed Content:\n")
+		fmt.Printf("\n   📁 Indexed Content:\n")
 		fmt.Printf("      Documents:           %d\n", contentStats.TotalDocs)
 		fmt.Printf("      Chunks:              %d\n", contentStats.TotalChunks)
 		fmt.Printf("      Total characters:    %s\n", formatNumber(contentStats.TotalChars))
 		fmt.Printf("      Est. tokens:         ~%s\n", formatNumber(contentStats.TotalTokensEst))
 
-		fmt.Printf("\n   With RAG (actual usage):\n")
+		fmt.Printf("\n   🎯 With RAG (actual usage):\n")
 		fmt.Printf("      Context sent to LLM: %s chars\n", formatNumber(llmStats.TotalInputChars))
 		fmt.Printf("      Est. tokens used:    ~%s\n", formatNumber(tokensUsed))
 
-		fmt.Printf("\n   Without RAG (full content):\n")
+		fmt.Printf("\n   ❌ Without RAG (full content):\n")
 		fmt.Printf("      Would need to send:  %s chars\n", formatNumber(contentStats.TotalChars))
 		fmt.Printf("      Est. tokens needed:  ~%s\n", formatNumber(fullContextTokens))
 
@@ -1298,7 +1314,7 @@ func main() {
 		if fullContextTokens > 0 {
 			savings := float64(fullContextTokens-llmStats.TotalInputTokens) / float64(fullContextTokens) * 100
 			reduction := float64(fullContextTokens) / float64(max(llmStats.TotalInputTokens, 1))
-			fmt.Printf("\n   SAVINGS:\n")
+			fmt.Printf("\n   💰 SAVINGS:\n")
 			fmt.Printf("      Token reduction:     %.1fx less tokens\n", reduction)
 			fmt.Printf("      Percentage saved:    %.1f%%\n", savings)
 
@@ -1324,7 +1340,7 @@ func main() {
 	// Show methodology only in verbose mode
 	if *verbose {
 		fmt.Printf("\n%s\n", strings.Repeat("─", 70))
-		fmt.Printf("TOKEN ESTIMATION METHODOLOGY\n")
+		fmt.Printf("📝 TOKEN ESTIMATION METHODOLOGY\n")
 		fmt.Printf("%s\n", strings.Repeat("─", 70))
 		fmt.Print(tokenMethodologyText)
 		fmt.Printf("%s\n", strings.Repeat("─", 70))
