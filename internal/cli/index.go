@@ -12,6 +12,7 @@ import (
 	"rag/config"
 	"rag/internal/adapter/analyzer"
 	"rag/internal/adapter/chunker"
+	"rag/internal/adapter/embedding"
 	"rag/internal/adapter/fs"
 	"rag/internal/adapter/store"
 	"rag/internal/port"
@@ -164,12 +165,25 @@ func runIndex(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to update schema info: %w", err)
 	}
 
+	// Generate embeddings if enabled
+	var embeddingsGenerated int
+	fmt.Printf("\nEmbedding config: enabled=%v, provider=%s, model=%s\n", cfg.Embedding.Enabled, cfg.Embedding.Provider, cfg.Embedding.Model)
+	if cfg.Embedding.Enabled {
+		embeddingsGenerated, err = generateEmbeddings(st, cfg)
+		if err != nil {
+			fmt.Printf("\nWarning: embedding generation failed: %v\n", err)
+		}
+	}
+
 	// Print results
 	fmt.Printf("\nIndexing complete:\n")
 	fmt.Printf("  Files indexed:  %d\n", result.FilesIndexed)
 	fmt.Printf("  Files skipped:  %d (unchanged)\n", result.FilesSkipped)
 	fmt.Printf("  Files deleted:  %d (removed)\n", result.FilesDeleted)
 	fmt.Printf("  Chunks created: %d\n", result.ChunksCreated)
+	if embeddingsGenerated > 0 {
+		fmt.Printf("  Embeddings:     %d\n", embeddingsGenerated)
+	}
 
 	if len(result.Errors) > 0 {
 		fmt.Printf("\nWarnings:\n")
@@ -180,6 +194,123 @@ func runIndex(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\nIndex stored at: %s\n", dbPath)
 	return nil
+}
+
+// generateEmbeddings generates vector embeddings for all chunks.
+func generateEmbeddings(st *store.BoltStore, cfg *config.Config) (int, error) {
+	// Create embedder based on config
+	var embedder port.Embedder
+	var err error
+
+	switch cfg.Embedding.Provider {
+	case "openai":
+		embedder, err = embedding.NewOpenAIEmbedder(cfg.Embedding.APIKeyEnv, cfg.Embedding.Model)
+	case "deepseek":
+		embedder, err = embedding.NewDeepSeekEmbedder(cfg.Embedding.APIKeyEnv, cfg.Embedding.Model)
+	case "jina":
+		embedder, err = embedding.NewJinaEmbedder(cfg.Embedding.APIKeyEnv, cfg.Embedding.Model)
+	case "ollama":
+		embedder, err = embedding.NewOllamaEmbedder(cfg.Embedding.Model, cfg.Embedding.BaseURL)
+	case "mock":
+		embedder = embedding.NewMockEmbedder(cfg.Embedding.Dimension)
+	default:
+		return 0, fmt.Errorf("unsupported embedding provider: %s", cfg.Embedding.Provider)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to create embedder: %w", err)
+	}
+
+	// Create vector store
+	vectorStore, err := store.NewBoltVectorStore(st.DB(), embedder.Dimension())
+	if err != nil {
+		return 0, fmt.Errorf("failed to create vector store: %w", err)
+	}
+
+	// Get all chunks that need embeddings
+	docs, err := st.ListDocs()
+	if err != nil {
+		return 0, err
+	}
+
+	var allChunks []struct {
+		id   string
+		text string
+	}
+
+	for _, doc := range docs {
+		chunks, err := st.GetChunksByDoc(doc.ID)
+		if err != nil {
+			continue
+		}
+		for _, chunk := range chunks {
+			allChunks = append(allChunks, struct {
+				id   string
+				text string
+			}{chunk.ID, chunk.Text})
+		}
+	}
+
+	if len(allChunks) == 0 {
+		return 0, nil
+	}
+
+	fmt.Printf("\nGenerating embeddings for %d chunks...\n", len(allChunks))
+
+	// Process in batches
+	batchSize := cfg.Embedding.BatchSize
+	if batchSize <= 0 {
+		batchSize = 100
+	}
+
+	bar := progressbar.NewOptions(len(allChunks),
+		progressbar.OptionEnableColorCodes(true),
+		progressbar.OptionShowBytes(false),
+		progressbar.OptionSetWidth(40),
+		progressbar.OptionShowCount(),
+		progressbar.OptionSetDescription("[cyan]Embedding[reset]"),
+		progressbar.OptionOnCompletion(func() {
+			fmt.Println()
+		}),
+	)
+
+	generated := 0
+	for i := 0; i < len(allChunks); i += batchSize {
+		end := i + batchSize
+		if end > len(allChunks) {
+			end = len(allChunks)
+		}
+		batch := allChunks[i:end]
+
+		// Extract texts for embedding
+		texts := make([]string, len(batch))
+		for j, c := range batch {
+			texts[j] = c.text
+		}
+
+		// Generate embeddings
+		embeddings, err := embedder.Embed(texts)
+		if err != nil {
+			return generated, fmt.Errorf("embedding batch failed: %w", err)
+		}
+
+		// Store vectors
+		items := make([]port.VectorItem, len(batch))
+		for j, c := range batch {
+			items[j] = port.VectorItem{
+				ID:     c.id,
+				Vector: embeddings[j],
+			}
+		}
+
+		if err := vectorStore.Upsert(items); err != nil {
+			return generated, fmt.Errorf("failed to store vectors: %w", err)
+		}
+
+		generated += len(batch)
+		bar.Set(generated)
+	}
+
+	return generated, nil
 }
 
 // formatDuration formats a duration in a human-readable way.

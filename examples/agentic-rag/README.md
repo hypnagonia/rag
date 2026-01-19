@@ -44,8 +44,9 @@ go run main.go -q "summarize" -provider local -model llama2
 | `-model` | `deepseek-chat` | Model name |
 | `-base-url` | (auto) | Custom API base URL |
 | `-api-key` | (env var) | API key (or use env var) |
-| `-k` | `5` | Results per query |
+| `-k` | `10` | Results per query |
 | `-max-iters` | `2` | Maximum search iterations |
+| `-budget` | `4000` | Token budget for context packing |
 | `-fast` | `false` | Fast mode: 1 LLM call only |
 | `-expand` | `false` | Use LLM to expand queries |
 | `-v` | `false` | Verbose output |

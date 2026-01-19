@@ -19,9 +19,10 @@ type Config struct {
 // EmbeddingConfig holds embedding configuration.
 type EmbeddingConfig struct {
 	Enabled   bool   `yaml:"enabled"`
-	Provider  string `yaml:"provider"`   // "openai", "voyage", "local", "mock"
-	Model     string `yaml:"model"`      // e.g., "text-embedding-3-small"
+	Provider  string `yaml:"provider"`    // "openai", "jina", "ollama", "mock"
+	Model     string `yaml:"model"`       // e.g., "text-embedding-3-small"
 	APIKeyEnv string `yaml:"api_key_env"` // Environment variable for API key
+	BaseURL   string `yaml:"base_url"`    // Custom base URL (for ollama or self-hosted)
 	Dimension int    `yaml:"dimension"`
 	BatchSize int    `yaml:"batch_size"`
 }

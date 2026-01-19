@@ -3,23 +3,24 @@ package usecase
 import (
 	"rag/internal/adapter/retriever"
 	"rag/internal/domain"
+	"rag/internal/port"
 )
 
 // RetrieveUseCase handles search and retrieval operations.
 type RetrieveUseCase struct {
-	bm25Retriever     *retriever.BM25Retriever
+	retriever         port.Retriever
 	mmrReranker       *retriever.MMRReranker
 	minScoreThreshold float64 // Filter results below this score (0 = disabled)
 }
 
 // NewRetrieveUseCase creates a new retrieve use case.
 func NewRetrieveUseCase(
-	bm25Retriever *retriever.BM25Retriever,
+	retriever port.Retriever,
 	mmrReranker *retriever.MMRReranker,
 	minScoreThreshold float64,
 ) *RetrieveUseCase {
 	return &RetrieveUseCase{
-		bm25Retriever:     bm25Retriever,
+		retriever:         retriever,
 		mmrReranker:       mmrReranker,
 		minScoreThreshold: minScoreThreshold,
 	}
@@ -27,8 +28,8 @@ func NewRetrieveUseCase(
 
 // Retrieve searches for chunks matching the query.
 func (u *RetrieveUseCase) Retrieve(query string, topK int) ([]domain.ScoredChunk, error) {
-	// Get initial results from BM25
-	candidates, err := u.bm25Retriever.Search(query, topK*2) // Get more candidates for MMR
+	// Get initial results from retriever (BM25 or hybrid)
+	candidates, err := u.retriever.Search(query, topK*2) // Get more candidates for MMR
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +62,7 @@ func (u *RetrieveUseCase) filterByThreshold(results []domain.ScoredChunk) []doma
 
 // RetrieveWithoutMMR searches without MMR reranking (for testing/debugging).
 func (u *RetrieveUseCase) RetrieveWithoutMMR(query string, topK int) ([]domain.ScoredChunk, error) {
-	return u.bm25Retriever.Search(query, topK)
+	return u.retriever.Search(query, topK)
 }
 
 // ScoredChunkResult is a simplified result for CLI output.

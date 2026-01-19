@@ -53,6 +53,11 @@ func NewBoltStore(path string) (*BoltStore, error) {
 	return &BoltStore{db: db}, nil
 }
 
+// DB returns the underlying BoltDB instance.
+func (s *BoltStore) DB() *bbolt.DB {
+	return s.db
+}
+
 // docMeta is the stored document metadata.
 type docMeta struct {
 	Path    string `json:"path"`

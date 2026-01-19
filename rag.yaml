@@ -43,13 +43,26 @@ index:
 
 retrieve:
   # Number of top results to return
-  top_k: 10
+  top_k: 20
 
   # MMR lambda parameter (higher = more relevance, lower = more diversity)
   mmr_lambda: 0.7
 
   # Jaccard similarity threshold for deduplication
   dedup_jaccard: 0.8
+
+  # Hybrid search (BM25 + vector)
+  hybrid_enabled: true
+  rrf_k: 60
+  bm25_weight: 0.5
+
+# Embedding configuration for semantic search
+embedding:
+  enabled: true
+  provider: ollama
+  model: nomic-embed-text
+  dimension: 768
+  batch_size: 50
 
 pack:
   # Maximum token budget for packed context

@@ -3,18 +3,20 @@
 // A general-purpose agentic RAG (Retrieval-Augmented Generation) tool that works
 // with any indexed content: books, articles, documentation, code, or any text.
 //
-// Workflow:
-// 1. Accept a search query from the user
-// 2. Optionally expand the query using LLM
-// 3. Search the RAG index for relevant passages
-// 4. Ask LLM if the context is sufficient or needs expansion
-// 5. Iterate until satisfied, then generate an answer
+// Features:
+//   - Hybrid search: BM25 keyword + vector semantic search (with Ollama embeddings)
+//   - Iterative context gathering with LLM evaluation
+//   - Token-aware context packing
 //
 // Usage:
-//   export DEEPSEEK_API_KEY=your-key  # or OPENAI_API_KEY
-//   go run main.go -q "what is the main theme" -index /path/to/indexed/content
+//   # Index with embeddings first:
+//   rag index ./content --config rag.yaml  # rag.yaml enables ollama embeddings
 //
-// Supported LLM providers (OpenAI-compatible APIs):
+//   # Then query:
+//   export DEEPSEEK_API_KEY=your-key
+//   go run main.go -q "what is the main theme" -index ./content
+//
+// Supported LLM providers:
 //   - DeepSeek: -provider deepseek -model deepseek-chat
 //   - OpenAI:   -provider openai -model gpt-4o-mini
 //   - Local:    -provider local -base-url http://localhost:11434/v1
@@ -34,9 +36,11 @@ import (
 
 	"rag/config"
 	"rag/internal/adapter/analyzer"
+	"rag/internal/adapter/embedding"
 	"rag/internal/adapter/retriever"
 	"rag/internal/adapter/store"
 	"rag/internal/domain"
+	"rag/internal/port"
 	"rag/internal/usecase"
 )
 
@@ -48,7 +52,7 @@ const (
 {"sufficient":bool,"reason":"brief","expand":["topic or term"],"queries":["search term"]}
 Use "expand" for specific topics you see referenced. Use "queries" for new searches.`
 
-	promptGenerateAnswer = `Answer the question using ONLY the provided context. Be concise and cite sources when possible.`
+	promptGenerateAnswer = `Answer the question using ONLY the provided context. Be concise. ALWAYS cite sources as [filename:lines] for every fact you mention.`
 
 	tokenMethodologyText = `
    Tokens are estimated using a ratio of ~4 characters per token.
@@ -227,38 +231,40 @@ func (c *LLMClient) GenerateWithSystem(systemPrompt, userPrompt string) (string,
 type AgenticRAG struct {
 	llm          *LLMClient
 	retrieveUC   *usecase.RetrieveUseCase
+	packUC       *usecase.PackUseCase
 	store        *store.BoltStore
 	maxIters     int
 	topK         int
+	tokenBudget  int  // token budget for context packing
 	verbose      bool
 	expandQuery  bool // whether to use LLM for query expansion
 	fastMode     bool // skip iterative evaluation, just search and answer
-	initialChunks int // chunks to start with (progressive context)
 }
 
 // NewAgenticRAG creates a new agentic RAG instance
-func NewAgenticRAG(llm *LLMClient, retrieveUC *usecase.RetrieveUseCase, store *store.BoltStore, opts AgenticRAGOptions) *AgenticRAG {
+func NewAgenticRAG(llm *LLMClient, retrieveUC *usecase.RetrieveUseCase, packUC *usecase.PackUseCase, store *store.BoltStore, opts AgenticRAGOptions) *AgenticRAG {
 	return &AgenticRAG{
 		llm:          llm,
 		retrieveUC:   retrieveUC,
+		packUC:       packUC,
 		store:        store,
 		maxIters:     opts.MaxIters,
 		topK:         opts.TopK,
+		tokenBudget:  opts.TokenBudget,
 		verbose:      opts.Verbose,
 		expandQuery:  opts.ExpandQuery,
 		fastMode:     opts.FastMode,
-		initialChunks: opts.InitialChunks,
 	}
 }
 
 // AgenticRAGOptions contains configuration for AgenticRAG
 type AgenticRAGOptions struct {
-	MaxIters      int
-	TopK          int
-	Verbose       bool
-	ExpandQuery   bool
-	FastMode      bool
-	InitialChunks int
+	MaxIters    int
+	TopK        int
+	TokenBudget int
+	Verbose     bool
+	ExpandQuery bool
+	FastMode    bool
 }
 
 // SearchResult holds search results with metadata
@@ -373,7 +379,7 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 		}
 
 		// Build context from current results
-		context := a.buildContext(allChunks)
+		context := a.buildContext(allChunks, originalQuery)
 
 		// Step 3: Ask LLM if context is sufficient
 		if a.verbose {
@@ -498,7 +504,7 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 
 	// Return what we have after max iterations
 	chunks := sortedChunks(allChunks)
-	context := a.buildContext(allChunks)
+	context := a.buildContext(allChunks, originalQuery)
 
 	// Generate final answer anyway
 	answer, err := a.generateAnswer(originalQuery, context)
@@ -578,7 +584,7 @@ func (a *AgenticRAG) runFastMode(originalQuery string, queries []string) (*Searc
 	if len(chunks) > a.topK {
 		chunks = chunks[:a.topK]
 	}
-	context := a.buildContextFromSlice(chunks)
+	context := a.buildContextFromSlice(chunks, originalQuery)
 
 	answer, err := a.generateAnswer(originalQuery, context)
 	if err != nil {
@@ -598,18 +604,6 @@ func (a *AgenticRAG) runFastMode(originalQuery string, queries []string) (*Searc
 		Context: context,
 		Answer:  answer,
 	}, nil
-}
-
-// buildContextFromSlice creates context from a slice of chunks
-func (a *AgenticRAG) buildContextFromSlice(chunks []domain.ScoredChunk) string {
-	var sb strings.Builder
-	for _, c := range chunks {
-		doc, _ := a.store.GetDoc(c.Chunk.DocID)
-		sb.WriteString(fmt.Sprintf("=== %s:L%d-%d ===\n", doc.Path, c.Chunk.StartLine, c.Chunk.EndLine))
-		sb.WriteString(c.Chunk.Text)
-		sb.WriteString("\n\n")
-	}
-	return sb.String()
 }
 
 // printPromptBox prints a formatted box with system and user prompts
@@ -763,15 +757,45 @@ func (a *AgenticRAG) expandContextItems(requests []string) []domain.ScoredChunk 
 	return results
 }
 
-// buildContext creates a text context from chunks
-func (a *AgenticRAG) buildContext(chunks map[string]domain.ScoredChunk) string {
-	var sb strings.Builder
+// buildContext creates a text context from chunks using the pack feature
+func (a *AgenticRAG) buildContext(chunks map[string]domain.ScoredChunk, query string) string {
+	// Convert map to slice
+	chunkSlice := make([]domain.ScoredChunk, 0, len(chunks))
 	for _, c := range chunks {
-		doc, _ := a.store.GetDoc(c.Chunk.DocID)
-		sb.WriteString(fmt.Sprintf("=== %s (L%d-%d) ===\n", doc.Path, c.Chunk.StartLine, c.Chunk.EndLine))
-		sb.WriteString(c.Chunk.Text)
+		chunkSlice = append(chunkSlice, c)
+	}
+	return a.buildContextFromSlice(chunkSlice, query)
+}
+
+// buildContextFromSlice creates context from a slice of chunks using pack
+func (a *AgenticRAG) buildContextFromSlice(chunks []domain.ScoredChunk, query string) string {
+	// Use pack to select best chunks within token budget
+	packed, err := a.packUC.Pack(query, chunks, a.tokenBudget)
+	if err != nil {
+		// Fallback to simple concatenation
+		var sb strings.Builder
+		for _, c := range chunks {
+			doc, _ := a.store.GetDoc(c.Chunk.DocID)
+			sb.WriteString(fmt.Sprintf("=== %s:L%d-%d ===\n", doc.Path, c.Chunk.StartLine, c.Chunk.EndLine))
+			sb.WriteString(c.Chunk.Text)
+			sb.WriteString("\n\n")
+		}
+		return sb.String()
+	}
+
+	// Build context from packed snippets
+	var sb strings.Builder
+	for _, s := range packed.Snippets {
+		sb.WriteString(fmt.Sprintf("=== %s:%s ===\n", s.Path, s.Range))
+		sb.WriteString(s.Text)
 		sb.WriteString("\n\n")
 	}
+
+	if a.verbose {
+		fmt.Printf("   📦 Packed: %d/%d tokens used (%d snippets)\n",
+			packed.UsedTokens, packed.BudgetTokens, len(packed.Snippets))
+	}
+
 	return sb.String()
 }
 
@@ -844,6 +868,44 @@ func extractJSON(s string) string {
 	return s
 }
 
+// setupHybridRetrieval creates the embedder and vector store for hybrid search.
+func setupHybridRetrieval(st *store.BoltStore, cfg *config.Config) (port.Embedder, port.VectorStore, error) {
+	var embedder port.Embedder
+	var err error
+
+	switch cfg.Embedding.Provider {
+	case "openai":
+		embedder, err = embedding.NewOpenAIEmbedder(cfg.Embedding.APIKeyEnv, cfg.Embedding.Model)
+	case "jina":
+		embedder, err = embedding.NewJinaEmbedder(cfg.Embedding.APIKeyEnv, cfg.Embedding.Model)
+	case "ollama":
+		embedder, err = embedding.NewOllamaEmbedder(cfg.Embedding.Model, cfg.Embedding.BaseURL)
+	case "mock":
+		embedder = embedding.NewMockEmbedder(cfg.Embedding.Dimension)
+	default:
+		return nil, nil, fmt.Errorf("unsupported embedding provider: %s", cfg.Embedding.Provider)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+
+	vectorStore, err := store.NewBoltVectorStore(st.DB(), embedder.Dimension())
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Check if vector store has any vectors
+	count, err := vectorStore.Count()
+	if err != nil {
+		return nil, nil, err
+	}
+	if count == 0 {
+		return nil, nil, fmt.Errorf("no embeddings found - run 'rag index' with embedding.enabled=true")
+	}
+
+	return embedder, vectorStore, nil
+}
+
 func main() {
 	// Command line flags
 	query := flag.String("q", "", "Search query (required)")
@@ -852,13 +914,14 @@ func main() {
 	model := flag.String("model", "deepseek-chat", "Model name")
 	baseURL := flag.String("base-url", "", "Custom API base URL (optional)")
 	apiKey := flag.String("api-key", "", "API key (optional, uses env var if not set)")
-	topK := flag.Int("k", 5, "Number of results per query")
+	topK := flag.Int("k", 10, "Number of results per query")
 	maxIters := flag.Int("max-iters", 2, "Maximum iterations")
 	verbose := flag.Bool("v", false, "Verbose output")
 	fullOutput := flag.Bool("full", false, "Show full content (no truncation)")
 	maxResults := flag.Int("max-results", 10, "Maximum results to display (0 = all)")
 	expand := flag.Bool("expand", false, "Use LLM to expand query (uses more tokens)")
 	fast := flag.Bool("fast", false, "Fast mode: search once and answer (minimal tokens)")
+	budget := flag.Int("budget", 4000, "Token budget for context packing")
 
 	flag.Parse()
 
@@ -900,21 +963,52 @@ func main() {
 	}
 	defer st.Close()
 
-	// Create retriever
+	// Create retriever (with hybrid search if embeddings are available)
 	tokenizer := analyzer.NewTokenizer(cfg.Index.Stemming)
 	bm25 := retriever.NewBM25Retriever(st, tokenizer, cfg.Index.K1, cfg.Index.B, cfg.Retrieve.PathBoostWeight)
 	mmr := retriever.NewMMRReranker(cfg.Retrieve.MMRLambda, cfg.Retrieve.DedupJaccard)
-	retrieveUC := usecase.NewRetrieveUseCase(bm25, mmr, cfg.Retrieve.MinScoreThreshold)
+
+	// Try to set up hybrid retrieval
+	var searchRetriever port.Retriever = bm25
+	if cfg.Retrieve.HybridEnabled && cfg.Embedding.Enabled {
+		embedder, vectorStore, err := setupHybridRetrieval(st, cfg)
+		if err != nil {
+			if *verbose {
+				fmt.Printf("⚠️  Hybrid search unavailable: %v (using BM25 only)\n", err)
+			}
+		} else {
+			searchRetriever = retriever.NewHybridRetriever(
+				bm25, vectorStore, embedder, st,
+				cfg.Retrieve.RRFK, cfg.Retrieve.BM25Weight,
+			)
+			if *verbose {
+				fmt.Printf("✓ Hybrid search enabled (BM25 + vector)\n")
+			}
+		}
+	}
+
+	retrieveUC := usecase.NewRetrieveUseCase(searchRetriever, mmr, cfg.Retrieve.MinScoreThreshold)
+
+	// Create pack use case for token-aware context selection
+	packUC := usecase.NewPackUseCase(st, tokenizer, cfg.Pack.RecencyBoost)
 
 	// Create and run agentic RAG
-	agent := NewAgenticRAG(llm, retrieveUC, st, AgenticRAGOptions{
-		MaxIters:      *maxIters,
-		TopK:          *topK,
-		Verbose:       *verbose,
-		ExpandQuery:   *expand,
-		FastMode:      *fast,
-		InitialChunks: 3, // start with 3 chunks for progressive context
+	agent := NewAgenticRAG(llm, retrieveUC, packUC, st, AgenticRAGOptions{
+		MaxIters:    *maxIters,
+		TopK:        *topK,
+		TokenBudget: *budget,
+		Verbose:     *verbose,
+		ExpandQuery: *expand,
+		FastMode:    *fast,
 	})
+
+	// Determine search mode
+	searchMode := "BM25"
+	if cfg.Retrieve.HybridEnabled && cfg.Embedding.Enabled {
+		if _, ok := searchRetriever.(*retriever.HybridRetriever); ok {
+			searchMode = "Hybrid (BM25 + Vector)"
+		}
+	}
 
 	// Print startup info
 	mode := "iterative"
@@ -923,8 +1017,8 @@ func main() {
 	}
 	fmt.Printf("🚀 Agentic RAG [%s]\n", mode)
 	fmt.Printf("┌─────────────────────────────────────────────────────────────────────\n")
-	fmt.Printf("│ LLM: %s/%s | Index: %s\n", *provider, *model, *indexPath)
-	fmt.Printf("│ top-k: %d | expand: %v | fast: %v\n", *topK, *expand, *fast)
+	fmt.Printf("│ LLM: %s/%s | Search: %s\n", *provider, *model, searchMode)
+	fmt.Printf("│ Index: %s | top-k: %d\n", *indexPath, *topK)
 	fmt.Printf("└─────────────────────────────────────────────────────────────────────\n")
 
 	result, err := agent.Run(*query)

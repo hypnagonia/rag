@@ -9,9 +9,11 @@ import (
 	"github.com/spf13/cobra"
 	"rag/config"
 	"rag/internal/adapter/analyzer"
+	"rag/internal/adapter/embedding"
 	"rag/internal/adapter/retriever"
 	"rag/internal/adapter/store"
 	"rag/internal/domain"
+	"rag/internal/port"
 	"rag/internal/usecase"
 )
 
@@ -64,12 +66,26 @@ func runQuery(cmd *cobra.Command, args []string) error {
 	// Create tokenizer
 	tokenizer := analyzer.NewTokenizer(cfg.Index.Stemming)
 
-	// Create retrievers
+	// Create BM25 retriever
 	bm25 := retriever.NewBM25Retriever(st, tokenizer, cfg.Index.K1, cfg.Index.B, cfg.Retrieve.PathBoostWeight)
 	mmr := retriever.NewMMRReranker(cfg.Retrieve.MMRLambda, cfg.Retrieve.DedupJaccard)
 
+	// Check if hybrid retrieval is enabled and set up
+	var searchRetriever port.Retriever = bm25
+	if cfg.Retrieve.HybridEnabled && cfg.Embedding.Enabled {
+		embedder, vectorStore, err := setupHybridRetrieval(st, cfg)
+		if err != nil {
+			fmt.Printf("Warning: hybrid retrieval unavailable: %v\n", err)
+		} else {
+			searchRetriever = retriever.NewHybridRetriever(
+				bm25, vectorStore, embedder, st,
+				cfg.Retrieve.RRFK, cfg.Retrieve.BM25Weight,
+			)
+		}
+	}
+
 	// Create retrieve use case
-	retrieveUC := usecase.NewRetrieveUseCase(bm25, mmr, cfg.Retrieve.MinScoreThreshold)
+	retrieveUC := usecase.NewRetrieveUseCase(searchRetriever, mmr, cfg.Retrieve.MinScoreThreshold)
 
 	// Determine top-k
 	topK := cfg.Retrieve.TopK
@@ -195,4 +211,44 @@ func joinLines(lines []string) string {
 		result += line
 	}
 	return result
+}
+
+// setupHybridRetrieval creates the embedder and vector store for hybrid search.
+func setupHybridRetrieval(st *store.BoltStore, cfg *config.Config) (port.Embedder, port.VectorStore, error) {
+	var embedder port.Embedder
+	var err error
+
+	switch cfg.Embedding.Provider {
+	case "openai":
+		embedder, err = embedding.NewOpenAIEmbedder(cfg.Embedding.APIKeyEnv, cfg.Embedding.Model)
+	case "deepseek":
+		embedder, err = embedding.NewDeepSeekEmbedder(cfg.Embedding.APIKeyEnv, cfg.Embedding.Model)
+	case "jina":
+		embedder, err = embedding.NewJinaEmbedder(cfg.Embedding.APIKeyEnv, cfg.Embedding.Model)
+	case "ollama":
+		embedder, err = embedding.NewOllamaEmbedder(cfg.Embedding.Model, cfg.Embedding.BaseURL)
+	case "mock":
+		embedder = embedding.NewMockEmbedder(cfg.Embedding.Dimension)
+	default:
+		return nil, nil, fmt.Errorf("unsupported embedding provider: %s", cfg.Embedding.Provider)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+
+	vectorStore, err := store.NewBoltVectorStore(st.DB(), embedder.Dimension())
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Check if vector store has any vectors
+	count, err := vectorStore.Count()
+	if err != nil {
+		return nil, nil, err
+	}
+	if count == 0 {
+		return nil, nil, fmt.Errorf("no embeddings found - run 'rag index' first with embedding.enabled=true")
+	}
+
+	return embedder, vectorStore, nil
 }

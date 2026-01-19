@@ -10,10 +10,11 @@ import (
 	"time"
 )
 
-// OpenAIEmbedder generates embeddings using OpenAI's API.
+// OpenAIEmbedder generates embeddings using OpenAI-compatible APIs.
 type OpenAIEmbedder struct {
 	apiKey    string
 	model     string
+	baseURL   string
 	dimension int
 	client    *http.Client
 }
@@ -49,13 +50,58 @@ type apiError struct {
 // apiKeyEnv is the environment variable name containing the API key.
 // model is the embedding model to use (e.g., "text-embedding-3-small").
 func NewOpenAIEmbedder(apiKeyEnv, model string) (*OpenAIEmbedder, error) {
+	return NewOpenAICompatibleEmbedder(apiKeyEnv, model, "https://api.openai.com/v1")
+}
+
+// NewDeepSeekEmbedder creates a new DeepSeek embedder.
+func NewDeepSeekEmbedder(apiKeyEnv, model string) (*OpenAIEmbedder, error) {
+	return NewOpenAICompatibleEmbedder(apiKeyEnv, model, "https://api.deepseek.com/v1")
+}
+
+// NewJinaEmbedder creates a new Jina AI embedder.
+// Free tier: 10M tokens, signup required.
+func NewJinaEmbedder(apiKeyEnv, model string) (*OpenAIEmbedder, error) {
+	return NewOpenAICompatibleEmbedder(apiKeyEnv, model, "https://api.jina.ai/v1")
+}
+
+// NewOllamaEmbedder creates a new Ollama local embedder.
+// Requires Ollama running locally. No API key needed.
+func NewOllamaEmbedder(model, baseURL string) (*OpenAIEmbedder, error) {
+	if baseURL == "" {
+		baseURL = "http://localhost:11434/v1"
+	}
+
+	// Set dimension based on model
+	dimension := 768 // Default for nomic-embed-text
+	switch model {
+	case "nomic-embed-text":
+		dimension = 768
+	case "mxbai-embed-large":
+		dimension = 1024
+	case "all-minilm":
+		dimension = 384
+	}
+
+	return &OpenAIEmbedder{
+		apiKey:    "ollama", // Ollama doesn't require an API key
+		model:     model,
+		baseURL:   baseURL,
+		dimension: dimension,
+		client: &http.Client{
+			Timeout: 120 * time.Second, // Longer timeout for local models
+		},
+	}, nil
+}
+
+// NewOpenAICompatibleEmbedder creates an embedder for any OpenAI-compatible API.
+func NewOpenAICompatibleEmbedder(apiKeyEnv, model, baseURL string) (*OpenAIEmbedder, error) {
 	apiKey := os.Getenv(apiKeyEnv)
 	if apiKey == "" {
 		return nil, fmt.Errorf("API key not found in environment variable: %s", apiKeyEnv)
 	}
 
 	// Set dimension based on model
-	dimension := 1536 // Default for text-embedding-3-small
+	dimension := 1536 // Default
 	switch model {
 	case "text-embedding-3-small":
 		dimension = 1536
@@ -63,11 +109,17 @@ func NewOpenAIEmbedder(apiKeyEnv, model string) (*OpenAIEmbedder, error) {
 		dimension = 3072
 	case "text-embedding-ada-002":
 		dimension = 1536
+	// Jina models
+	case "jina-embeddings-v3":
+		dimension = 1024
+	case "jina-embeddings-v4":
+		dimension = 2048
 	}
 
 	return &OpenAIEmbedder{
 		apiKey:    apiKey,
 		model:     model,
+		baseURL:   baseURL,
 		dimension: dimension,
 		client: &http.Client{
 			Timeout: 60 * time.Second,
@@ -114,7 +166,7 @@ func (e *OpenAIEmbedder) embedBatch(texts []string) ([][]float32, error) {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", "https://api.openai.com/v1/embeddings", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", e.baseURL+"/embeddings", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -133,17 +185,22 @@ func (e *OpenAIEmbedder) embedBatch(texts []string) ([][]float32, error) {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
+	// Debug: print response if it's an error
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
 	var embResp embeddingResponse
 	if err := json.Unmarshal(body, &embResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+		bodyPreview := string(body)
+		if len(bodyPreview) > 200 {
+			bodyPreview = bodyPreview[:200]
+		}
+		return nil, fmt.Errorf("failed to parse response (body: %s): %w", bodyPreview, err)
 	}
 
 	if embResp.Error != nil {
 		return nil, fmt.Errorf("API error: %s", embResp.Error.Message)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API returned status %d", resp.StatusCode)
 	}
 
 	// Sort by index to ensure correct order
