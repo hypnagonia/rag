@@ -1,41 +1,56 @@
-```bash
-$ go run main.go -q "How did Ned Stark die" -index ./books -expand
-
-Ned Stark was executed by beheading after being accused of treason. King Joffrey,
-despite initially suggesting Ned could take the black, ordered his execution.
-Ser Ilyn Payne, the King's Justice, carried out the sentence at the steps of the
-Great Sept of Baelor [1.txt:16974-16996].
-TOKEN USAGE: ~3k tokens (with RAG) vs ~2M tokens (without RAG)
-
-$ go run main.go -q "Joffrey death" -index ./books -expand
-
-Joffrey was murdered by poison at his own wedding feast. The poison used is
-identified as "the strangler," a rare substance that causes the throat muscles
-to clench, shutting off the windpipe and turning the victim's face purple
-[2.txt:L472-495]. During Tyrion's trial, Grand Maester Pycelle confirms that
-the strangler was used to kill Joffrey [3.txt:L22842-22868].
-TOKEN USAGE: ~4k tokens (with RAG) vs ~2M tokens (without RAG)
-
-$ go run main.go -q "Red Wedding Robb Stark murdered" -index ./books -expand
-
-Robb Stark was betrayed and murdered by the Freys and Boltons at the Twins
-during his uncle's wedding, an event known as the Red Wedding [4.txt:21098-21138].
-TOKEN USAGE: ~3k tokens (with RAG) vs ~2M tokens (without RAG)
-
-$ go run main.go -q "How did Drogo die" -index ./books -expand
-
-Drogo died after being placed in a comatose state by a bloodmagic ritual
-performed by Mirri Maz Duur. The ritual involved sacrificing his horse and
-using its blood, but it left Drogo alive yet unresponsive [125804431.txt:L16544-16620].
-Mirri Maz Duur states that Drogo will only return to his former self under
-impossible conditions, implying he will never recover [1.txt:L17745-17772].
-
-TOKEN USAGE: ~5k tokens (with RAG) vs ~2M tokens (without RAG)
-```
-
 # RAG Context Compressor
 
 A CLI tool for indexing local files using BM25 lexical retrieval, ranking results with MMR deduplication, and packing compressed context with citations for LLM consumption.
+
+## Example: Querying Game of Thrones (5 books, ~2M tokens)
+
+```bash
+$ rag query -q "How did Ned Stark die" -index ./books -expand
+```
+> Ned Stark was executed by beheading after being accused of treason. King Joffrey,
+> despite initially suggesting Ned could take the black, ordered his execution.
+> Ser Ilyn Payne, the King's Justice, carried out the sentence at the steps of the
+> Great Sept of Baelor [1.txt:16974-16996].
+>
+> **~3k tokens** (with RAG) vs **~2M tokens** (without RAG)
+
+---
+
+```bash
+$ rag query -q "Joffrey death" -index ./books -expand
+```
+> Joffrey was murdered by poison at his own wedding feast. The poison used is
+> identified as "the strangler," a rare substance that causes the throat muscles
+> to clench, shutting off the windpipe and turning the victim's face purple
+> [2.txt:L472-495]. During Tyrion's trial, Grand Maester Pycelle confirms that
+> the strangler was used to kill Joffrey [3.txt:L22842-22868].
+>
+> **~4k tokens** (with RAG) vs **~2M tokens** (without RAG)
+
+---
+
+```bash
+$ rag query -q "Red Wedding Robb Stark murdered" -index ./books -expand
+```
+> Robb Stark was betrayed and murdered by the Freys and Boltons at the Twins
+> during his uncle's wedding, an event known as the Red Wedding [4.txt:21098-21138].
+>
+> **~3k tokens** (with RAG) vs **~2M tokens** (without RAG)
+
+---
+
+```bash
+$ rag query -q "How did Drogo die" -index ./books -expand
+```
+> Drogo died after being placed in a comatose state by a bloodmagic ritual
+> performed by Mirri Maz Duur. The ritual involved sacrificing his horse and
+> using its blood, but it left Drogo alive yet unresponsive [125804431.txt:L16544-16620].
+> Mirri Maz Duur states that Drogo will only return to his former self under
+> impossible conditions, implying he will never recover [1.txt:L17745-17772].
+>
+> **~5k tokens** (with RAG) vs **~2M tokens** (without RAG)
+
+---
 
 ## Installation
 
