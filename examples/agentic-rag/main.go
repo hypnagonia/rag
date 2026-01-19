@@ -49,7 +49,8 @@ import (
 
 // Prompt templates for LLM interactions (kept short to minimize tokens)
 const (
-	promptExpandQuery = `Generate 2-3 search queries to find relevant passages for the given question. Output one query per line, no numbering.`
+	promptExpandQuery = `Generate 3 search queries to find relevant passages. Output one query per line, no numbering.
+`
 
 	promptEvaluateContext = `Given text passages and a question, respond in JSON:
 {"sufficient":bool,"reason":"brief","expand":["topic"],"queries":["search"],"expandLines":["file:line"]}
@@ -297,7 +298,7 @@ type ContentStats struct {
 func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 	if a.verbose {
 		fmt.Printf("\n%s\n", strings.Repeat("─", 70))
-		fmt.Printf("🔍 ORIGINAL QUERY: %s\n", originalQuery)
+		fmt.Printf("ORIGINAL QUERY: %s\n", originalQuery)
 		fmt.Printf("%s\n", strings.Repeat("─", 70))
 	}
 
@@ -305,22 +306,22 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 	var expandedQueries []string
 	if a.expandQuery {
 		if a.verbose {
-			fmt.Printf("\n📤 [LLM] Requesting query expansion...\n")
+			fmt.Printf("\n[LLM] Requesting query expansion...\n")
 		} else {
-			fmt.Printf("📤 Expanding query...")
+			fmt.Printf("Expanding query...")
 		}
 		var err error
 		expandedQueries, err = a.doExpandQuery(originalQuery)
 		if err != nil {
 			if a.verbose {
-				fmt.Printf("⚠️  Query expansion failed: %v\n", err)
+				fmt.Printf("Warning: Query expansion failed: %v\n", err)
 			} else {
 				fmt.Printf(" failed\n")
 			}
 			expandedQueries = []string{originalQuery}
 		} else {
 			if a.verbose {
-				fmt.Printf("📥 [LLM] Expanded queries:\n")
+				fmt.Printf("[LLM] Expanded queries:\n")
 				for i, q := range expandedQueries {
 					fmt.Printf("   %d. %s\n", i+1, q)
 				}
@@ -343,15 +344,15 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 	for iter := 0; iter < a.maxIters; iter++ {
 		if a.verbose {
 			fmt.Printf("\n%s\n", strings.Repeat("═", 70))
-			fmt.Printf("🔄 ITERATION %d of %d\n", iter+1, a.maxIters)
+			fmt.Printf("ITERATION %d of %d\n", iter+1, a.maxIters)
 			fmt.Printf("%s\n", strings.Repeat("═", 70))
 		}
 
 		// Step 2: Search with all queries
 		if a.verbose {
-			fmt.Printf("\n🔎 Executing RAG searches:\n")
+			fmt.Printf("\nExecuting RAG searches:\n")
 		} else {
-			fmt.Printf("🔎 Searching [iter %d]...", iter+1)
+			fmt.Printf("Searching [iter %d]...", iter+1)
 		}
 		for _, q := range expandedQueries {
 			if a.verbose {
@@ -360,7 +361,7 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 			chunks, err := a.retrieveUC.Retrieve(q, a.topK)
 			if err != nil {
 				if a.verbose {
-					fmt.Printf("     ❌ Error: %v\n", err)
+					fmt.Printf("     Error: %v\n", err)
 				}
 				continue
 			}
@@ -374,7 +375,7 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 				}
 			}
 			if a.verbose {
-				fmt.Printf("     ✓ Found %d results (%d new unique chunks)\n", len(chunks), newCount)
+				fmt.Printf("     Found %d results (%d new unique chunks)\n", len(chunks), newCount)
 			}
 		}
 
@@ -383,7 +384,7 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 		}
 
 		if a.verbose {
-			fmt.Printf("\n📚 Total unique chunks collected: %d\n", len(allChunks))
+			fmt.Printf("\nTotal unique chunks collected: %d\n", len(allChunks))
 		} else {
 			fmt.Printf(" found %d chunks\n", len(allChunks))
 		}
@@ -393,14 +394,14 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 
 		// Step 3: Ask LLM if context is sufficient
 		if a.verbose {
-			fmt.Printf("\n📤 [LLM] Evaluating if context is sufficient...\n")
+			fmt.Printf("\n[LLM] Evaluating if context is sufficient...\n")
 		} else {
-			fmt.Printf("🤔 Evaluating context...")
+			fmt.Printf("Evaluating context...")
 		}
 		decision, err := a.evaluateContext(originalQuery, context)
 		if err != nil {
 			if a.verbose {
-				fmt.Printf("⚠️  Context evaluation failed: %v\n", err)
+				fmt.Printf("Warning: Context evaluation failed: %v\n", err)
 				fmt.Printf("   Assuming context is sufficient.\n")
 			} else {
 				fmt.Printf(" failed, proceeding\n")
@@ -415,7 +416,7 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 		}
 
 		if a.verbose {
-			fmt.Printf("📥 [LLM] Decision:\n")
+			fmt.Printf("[LLM] Decision:\n")
 			fmt.Printf("   • Sufficient: %v\n", decision.Sufficient)
 			fmt.Printf("   • Reason: %s\n", decision.Reason)
 			if len(decision.ExpandContext) > 0 {
@@ -428,9 +429,9 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 
 		if decision.Sufficient {
 			if a.verbose {
-				fmt.Printf("\n✅ Context is sufficient! Generating answer...\n")
+				fmt.Printf("\nContext is sufficient! Generating answer...\n")
 			} else {
-				fmt.Printf("💡 Generating answer...")
+				fmt.Printf("Generating answer...")
 			}
 			chunks := sortedChunks(allChunks)
 
@@ -438,7 +439,7 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 			answer, err := a.generateAnswer(originalQuery, context)
 			if err != nil {
 				if a.verbose {
-					fmt.Printf("⚠️  Failed to generate answer: %v\n", err)
+					fmt.Printf("Warning: Failed to generate answer: %v\n", err)
 				} else {
 					fmt.Printf(" failed\n")
 				}
@@ -458,12 +459,12 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 		// Step 4a: Handle context expansion requests first
 		if len(decision.ExpandContext) > 0 {
 			if a.verbose {
-				fmt.Printf("\n📚 LLM requested context expansion:\n")
+				fmt.Printf("\nLLM requested context expansion:\n")
 				for i, item := range decision.ExpandContext {
 					fmt.Printf("   %d. %s\n", i+1, item)
 				}
 			} else {
-				fmt.Printf("📚 Expanding context (%d items)...", len(decision.ExpandContext))
+				fmt.Printf("Expanding context (%d items)...", len(decision.ExpandContext))
 			}
 
 			// Fetch the requested context items
@@ -477,7 +478,7 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 			}
 
 			if a.verbose {
-				fmt.Printf("   ✓ Added %d new chunks from expansion\n", newCount)
+				fmt.Printf("   Added %d new chunks from expansion\n", newCount)
 			} else {
 				fmt.Printf(" +%d chunks\n", newCount)
 			}
@@ -491,18 +492,18 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 		// Step 4b: Handle line expansion requests (read more lines around a passage)
 		if len(decision.ExpandLines) > 0 {
 			if a.verbose {
-				fmt.Printf("\n📖 LLM requested line expansion:\n")
+				fmt.Printf("\nLLM requested line expansion:\n")
 				for i, item := range decision.ExpandLines {
 					fmt.Printf("   %d. %s\n", i+1, item)
 				}
 			} else {
-				fmt.Printf("📖 Expanding lines (%d locations)...", len(decision.ExpandLines))
+				fmt.Printf("Expanding lines (%d locations)...", len(decision.ExpandLines))
 			}
 
 			newCount := a.expandLinesAround(decision.ExpandLines, 50)
 
 			if a.verbose {
-				fmt.Printf("   ✓ Expanded %d file locations\n", newCount)
+				fmt.Printf("   Expanded %d file locations\n", newCount)
 			} else {
 				fmt.Printf(" +%d expanded\n", newCount)
 			}
@@ -516,7 +517,7 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 		// Step 4c: Need more context - generate new queries
 		if len(decision.SuggestedQueries) > 0 {
 			if a.verbose {
-				fmt.Printf("\n🔄 LLM suggested new queries:\n")
+				fmt.Printf("\nLLM suggested new queries:\n")
 				for i, q := range decision.SuggestedQueries {
 					fmt.Printf("   %d. %s\n", i+1, q)
 				}
@@ -525,7 +526,7 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 		} else if len(decision.ExpandContext) == 0 && len(decision.ExpandLines) == 0 {
 			// Only stop if we had no expansion or queries
 			if a.verbose {
-				fmt.Printf("\n⚠️  No new queries or expansion suggested. Stopping iterations.\n")
+				fmt.Printf("\nNo new queries or expansion suggested. Stopping iterations.\n")
 			}
 			break
 		}
@@ -534,7 +535,7 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 	if a.verbose {
 		fmt.Printf("\n⏹️  Max iterations reached. Generating answer with available context...\n")
 	} else {
-		fmt.Printf("💡 Generating answer...")
+		fmt.Printf("Generating answer...")
 	}
 
 	// Return what we have after max iterations
@@ -545,7 +546,7 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 	answer, err := a.generateAnswer(originalQuery, context)
 	if err != nil {
 		if a.verbose {
-			fmt.Printf("⚠️  Failed to generate answer: %v\n", err)
+			fmt.Printf("Warning: Failed to generate answer: %v\n", err)
 		} else {
 			fmt.Printf(" failed\n")
 		}
@@ -564,11 +565,11 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 
 // generateAnswer asks LLM to answer the question based on retrieved context
 func (a *AgenticRAG) generateAnswer(query, context string) (string, error) {
-	truncatedContext := truncateContext(context, 4000) // reduced from 8000
+	truncatedContext := truncateContext(context, 8000) // give LLM more context for answer
 	userPrompt := fmt.Sprintf("Q: %s\n\nContext:\n%s", query, truncatedContext)
 
 	if a.verbose {
-		fmt.Printf("\n📤 [LLM] Generating final answer...\n")
+		fmt.Printf("\n[LLM] Generating final answer...\n")
 		a.printPromptBox(promptGenerateAnswer, fmt.Sprintf("Question: %s\n\nContext: (%d chars, omitted)", query, len(truncatedContext)))
 	}
 
@@ -587,7 +588,7 @@ func (a *AgenticRAG) generateAnswer(query, context string) (string, error) {
 // runFastMode executes a minimal token workflow: search once, answer once
 func (a *AgenticRAG) runFastMode(originalQuery string, queries []string) (*SearchResult, error) {
 	if !a.verbose {
-		fmt.Printf("🔎 Searching...")
+		fmt.Printf("Searching...")
 	}
 
 	// Search with all queries
@@ -610,7 +611,7 @@ func (a *AgenticRAG) runFastMode(originalQuery string, queries []string) (*Searc
 
 	if !a.verbose {
 		fmt.Printf(" %d chunks\n", len(allChunks))
-		fmt.Printf("💡 Generating answer...")
+		fmt.Printf("Generating answer...")
 	}
 
 	// Build context and generate answer
@@ -712,8 +713,8 @@ type ContextDecision struct {
 
 // evaluateContext asks LLM if the current context is sufficient
 func (a *AgenticRAG) evaluateContext(query, context string) (*ContextDecision, error) {
-	// Send truncated context - reduced from 6000 to 2000 for token savings
-	truncatedContext := truncateContext(context, 2000)
+	// Send truncated context - use 6000 chars to see more packed snippets
+	truncatedContext := truncateContext(context, 6000)
 	userPrompt := fmt.Sprintf("Q: %s\n\nContext:\n%s\n\nSufficient?", query, truncatedContext)
 
 	if a.verbose {
@@ -767,14 +768,14 @@ func (a *AgenticRAG) expandContextItems(requests []string) []domain.ScoredChunk 
 
 	for _, req := range requests {
 		if a.verbose {
-			fmt.Printf("\n   🔎 Expanding context: %s\n", req)
+			fmt.Printf("\n   Expanding context: %s\n", req)
 		}
 
 		// Search for the requested item
 		chunks, err := a.retrieveUC.Retrieve(req, a.topK/2+1)
 		if err != nil {
 			if a.verbose {
-				fmt.Printf("      ❌ Error: %v\n", err)
+				fmt.Printf("      Error: %v\n", err)
 			}
 			continue
 		}
@@ -788,7 +789,7 @@ func (a *AgenticRAG) expandContextItems(requests []string) []domain.ScoredChunk 
 			}
 		}
 		if a.verbose {
-			fmt.Printf("      ✓ Added %d chunks\n", added)
+			fmt.Printf("      Added %d chunks\n", added)
 		}
 	}
 
@@ -808,7 +809,7 @@ func (a *AgenticRAG) expandLinesAround(requests []string, extraLines int) int {
 		parts := strings.SplitN(req, ":", 2)
 		if len(parts) != 2 {
 			if a.verbose {
-				fmt.Printf("   ⚠️  Invalid format: %s (expected file:line)\n", req)
+				fmt.Printf("   Warning: Invalid format: %s (expected file:line)\n", req)
 			}
 			continue
 		}
@@ -817,7 +818,7 @@ func (a *AgenticRAG) expandLinesAround(requests []string, extraLines int) int {
 		centerLine, err := strconv.Atoi(parts[1])
 		if err != nil {
 			if a.verbose {
-				fmt.Printf("   ⚠️  Invalid line number: %s\n", parts[1])
+				fmt.Printf("   Warning: Invalid line number: %s\n", parts[1])
 			}
 			continue
 		}
@@ -836,14 +837,14 @@ func (a *AgenticRAG) expandLinesAround(requests []string, extraLines int) int {
 		}
 
 		if a.verbose {
-			fmt.Printf("   📖 Expanding lines around %s:%d (±%d lines)\n", filename, centerLine, extraLines)
+			fmt.Printf("   Expanding lines around %s:%d (±%d lines)\n", filename, centerLine, extraLines)
 		}
 
 		// Read the expanded context
 		text, startLine, endLine, err := readLinesAround(fullPath, centerLine, extraLines)
 		if err != nil {
 			if a.verbose {
-				fmt.Printf("      ❌ Error: %v\n", err)
+				fmt.Printf("      Error: %v\n", err)
 			}
 			continue
 		}
@@ -854,7 +855,7 @@ func (a *AgenticRAG) expandLinesAround(requests []string, extraLines int) int {
 		added++
 
 		if a.verbose {
-			fmt.Printf("      ✓ Read lines %d-%d (%d chars)\n", startLine, endLine, len(text))
+			fmt.Printf("      Read lines %d-%d (%d chars)\n", startLine, endLine, len(text))
 		}
 	}
 
@@ -948,13 +949,16 @@ func (a *AgenticRAG) buildContextFromSlice(chunks []domain.ScoredChunk, query st
 			sb.WriteString("\n\n")
 		}
 		if a.verbose {
-			fmt.Printf("   📖 Added %d expanded line contexts\n", len(a.expandedLines))
+			fmt.Printf("   Added %d expanded line contexts\n", len(a.expandedLines))
 		}
 	}
 
 	if a.verbose {
-		fmt.Printf("   📦 Packed: %d/%d tokens used (%d snippets)\n",
+		fmt.Printf("   Packed: %d/%d tokens used (%d snippets)\n",
 			packed.UsedTokens, packed.BudgetTokens, len(packed.Snippets))
+		for i, s := range packed.Snippets {
+			fmt.Printf("      %d. %s:%s (%.0f chars)\n", i+1, filepath.Base(s.Path), s.Range, float64(len(s.Text)))
+		}
 	}
 
 	return sb.String()
@@ -1135,7 +1139,7 @@ func main() {
 		embedder, vectorStore, err := setupHybridRetrieval(st, cfg)
 		if err != nil {
 			if *verbose {
-				fmt.Printf("⚠️  Hybrid search unavailable: %v (using BM25 only)\n", err)
+				fmt.Printf("Warning: Hybrid search unavailable: %v (using BM25 only)\n", err)
 			}
 		} else {
 			searchRetriever = retriever.NewHybridRetriever(
@@ -1143,7 +1147,7 @@ func main() {
 				cfg.Retrieve.RRFK, cfg.Retrieve.BM25Weight,
 			)
 			if *verbose {
-				fmt.Printf("✓ Hybrid search enabled (BM25 + vector)\n")
+				fmt.Printf("Hybrid search enabled (BM25 + vector)\n")
 			}
 		}
 	}
@@ -1177,7 +1181,7 @@ func main() {
 	if *fast {
 		mode = "fast (1 LLM call)"
 	}
-	fmt.Printf("🚀 Agentic RAG [%s]\n", mode)
+	fmt.Printf("Agentic RAG [%s]\n", mode)
 	fmt.Printf("┌─────────────────────────────────────────────────────────────────────\n")
 	fmt.Printf("│ LLM: %s/%s | Search: %s\n", *provider, *model, searchMode)
 	fmt.Printf("│ Index: %s | top-k: %d\n", *indexPath, *topK)
@@ -1241,7 +1245,7 @@ func main() {
 
 	// Print the answer
 	fmt.Printf("\n%s\n", strings.Repeat("═", 70))
-	fmt.Printf("💡 ANSWER\n")
+	fmt.Printf("ANSWER\n")
 	fmt.Printf("%s\n\n", strings.Repeat("═", 70))
 	fmt.Println(result.Answer)
 
@@ -1252,18 +1256,18 @@ func main() {
 	tokensUsed := llmStats.TotalInputTokens + llmStats.TotalOutputTokens
 
 	fmt.Printf("\n%s\n", strings.Repeat("─", 70))
-	fmt.Printf("📊 TOKEN USAGE: ~%s tokens (with RAG) vs ~%s tokens (without RAG)\n",
+	fmt.Printf("TOKEN USAGE: ~%s tokens (with RAG) vs ~%s tokens (without RAG)\n",
 		formatNumber(tokensUsed), formatNumber(fullContextTokens))
 	if fullContextTokens > 0 {
 		reduction := float64(fullContextTokens) / float64(max(llmStats.TotalInputTokens, 1))
-		fmt.Printf("   💰 RAG saved %.1fx tokens\n", reduction)
+		fmt.Printf("   RAG saved %.1fx tokens\n", reduction)
 	}
 	fmt.Printf("%s\n", strings.Repeat("─", 70))
 
 	// Show detailed statistics only in verbose mode
 	if *verbose {
 		fmt.Printf("\n%s\n", strings.Repeat("─", 70))
-		fmt.Printf("📊 LLM USAGE STATISTICS (detailed)\n")
+		fmt.Printf("LLM USAGE STATISTICS (detailed)\n")
 		fmt.Printf("%s\n", strings.Repeat("─", 70))
 		fmt.Printf("   Total LLM calls:        %d\n", llmStats.TotalCalls)
 		fmt.Printf("   Input characters:       %s\n", formatNumber(llmStats.TotalInputChars))
@@ -1274,19 +1278,19 @@ func main() {
 
 		// Print comparison with full content
 		fmt.Printf("\n%s\n", strings.Repeat("─", 70))
-		fmt.Printf("📈 RAG EFFICIENCY COMPARISON (detailed)\n")
+		fmt.Printf("RAG EFFICIENCY COMPARISON (detailed)\n")
 		fmt.Printf("%s\n", strings.Repeat("─", 70))
-		fmt.Printf("\n   📁 Indexed Content:\n")
+		fmt.Printf("\n   Indexed Content:\n")
 		fmt.Printf("      Documents:           %d\n", contentStats.TotalDocs)
 		fmt.Printf("      Chunks:              %d\n", contentStats.TotalChunks)
 		fmt.Printf("      Total characters:    %s\n", formatNumber(contentStats.TotalChars))
 		fmt.Printf("      Est. tokens:         ~%s\n", formatNumber(contentStats.TotalTokensEst))
 
-		fmt.Printf("\n   🎯 With RAG (actual usage):\n")
+		fmt.Printf("\n   With RAG (actual usage):\n")
 		fmt.Printf("      Context sent to LLM: %s chars\n", formatNumber(llmStats.TotalInputChars))
 		fmt.Printf("      Est. tokens used:    ~%s\n", formatNumber(tokensUsed))
 
-		fmt.Printf("\n   ❌ Without RAG (full content):\n")
+		fmt.Printf("\n   Without RAG (full content):\n")
 		fmt.Printf("      Would need to send:  %s chars\n", formatNumber(contentStats.TotalChars))
 		fmt.Printf("      Est. tokens needed:  ~%s\n", formatNumber(fullContextTokens))
 
@@ -1294,7 +1298,7 @@ func main() {
 		if fullContextTokens > 0 {
 			savings := float64(fullContextTokens-llmStats.TotalInputTokens) / float64(fullContextTokens) * 100
 			reduction := float64(fullContextTokens) / float64(max(llmStats.TotalInputTokens, 1))
-			fmt.Printf("\n   💰 SAVINGS:\n")
+			fmt.Printf("\n   SAVINGS:\n")
 			fmt.Printf("      Token reduction:     %.1fx less tokens\n", reduction)
 			fmt.Printf("      Percentage saved:    %.1f%%\n", savings)
 
@@ -1320,7 +1324,7 @@ func main() {
 	// Show methodology only in verbose mode
 	if *verbose {
 		fmt.Printf("\n%s\n", strings.Repeat("─", 70))
-		fmt.Printf("📝 TOKEN ESTIMATION METHODOLOGY\n")
+		fmt.Printf("TOKEN ESTIMATION METHODOLOGY\n")
 		fmt.Printf("%s\n", strings.Repeat("─", 70))
 		fmt.Print(tokenMethodologyText)
 		fmt.Printf("%s\n", strings.Repeat("─", 70))

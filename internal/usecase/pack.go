@@ -117,6 +117,11 @@ func (u *PackUseCase) Pack(query string, chunks []domain.ScoredChunk, budget int
 	// Try to merge adjacent chunks from same file
 	merged := u.mergeAdjacentChunks(selected)
 
+	// Sort merged by score descending so most relevant snippets come first
+	sort.Slice(merged, func(i, j int) bool {
+		return merged[i].Score > merged[j].Score
+	})
+
 	// Build snippets
 	snippets := make([]domain.Snippet, 0, len(merged))
 	for _, sc := range merged {
