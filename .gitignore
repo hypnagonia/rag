@@ -32,3 +32,4 @@ Thumbs.db
 .rag/
 *.db
 tmp/
+examples/*/main
