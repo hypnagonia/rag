@@ -4,32 +4,30 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"rag/internal/adapter/analyzer"
-	"rag/internal/adapter/fs"
-	"rag/internal/adapter/store"
 	"rag/internal/domain"
 	"rag/internal/port"
 )
 
 type IndexUseCase struct {
-	store     *store.BoltStore
-	walker    *fs.Walker
+	store     port.IndexStore
+	walker    port.FileWalker
 	chunkSvc  port.Chunker
-	tokenizer *analyzer.Tokenizer
+	tokenizer port.Tokenizer
 	workers   int
 }
 
 func NewIndexUseCase(
-	store *store.BoltStore,
-	walker *fs.Walker,
+	store port.IndexStore,
+	walker port.FileWalker,
 	chunkSvc port.Chunker,
-	tokenizer *analyzer.Tokenizer,
+	tokenizer port.Tokenizer,
 ) *IndexUseCase {
 	workers := runtime.NumCPU()
 	if workers < 2 {
@@ -74,7 +72,7 @@ func (u *IndexUseCase) Index(root string, progress ProgressCallback) (*IndexResu
 
 	seenPaths := make(map[string]bool)
 
-	var filesToIndex []fs.FileInfo
+	var filesToIndex []port.FileInfo
 	var skippedDocs []domain.Document
 
 	for _, file := range files {
@@ -143,17 +141,17 @@ func (u *IndexUseCase) Index(root string, progress ProgressCallback) (*IndexResu
 }
 
 type processedFile struct {
-	file     store.IndexedFile
+	file     port.IndexedFile
 	err      error
 	path     string
 	chunkLen int
 }
 
-func (u *IndexUseCase) indexFilesParallel(files []fs.FileInfo, progress ProgressCallback) (indexed, chunkCount, chunkLen int, errors []string) {
+func (u *IndexUseCase) indexFilesParallel(files []port.FileInfo, progress ProgressCallback) (indexed, chunkCount, chunkLen int, errors []string) {
 	totalFiles := len(files)
 	var processed int64
 
-	jobs := make(chan fs.FileInfo, len(files))
+	jobs := make(chan port.FileInfo, len(files))
 	results := make(chan processedFile, len(files))
 
 	var wg sync.WaitGroup
@@ -186,7 +184,7 @@ func (u *IndexUseCase) indexFilesParallel(files []fs.FileInfo, progress Progress
 	}()
 
 	const batchSize = 50
-	batch := make([]store.IndexedFile, 0, batchSize)
+	batch := make([]port.IndexedFile, 0, batchSize)
 
 	for result := range results {
 		if result.err != nil {
@@ -216,14 +214,15 @@ func (u *IndexUseCase) indexFilesParallel(files []fs.FileInfo, progress Progress
 	return
 }
 
-func (u *IndexUseCase) processFile(file fs.FileInfo) processedFile {
+func (u *IndexUseCase) processFile(file port.FileInfo) processedFile {
 	result := processedFile{path: file.Path}
 
-	content, err := fs.ReadFile(file.Path)
+	data, err := os.ReadFile(file.Path)
 	if err != nil {
 		result.err = fmt.Errorf("failed to read file: %w", err)
 		return result
 	}
+	content := string(data)
 
 	docID := generateDocID(file.Path)
 	doc := domain.Document{
@@ -256,7 +255,7 @@ func (u *IndexUseCase) processFile(file fs.FileInfo) processedFile {
 		chunkLen += len(chunk.Tokens)
 	}
 
-	result.file = store.IndexedFile{
+	result.file = port.IndexedFile{
 		Doc:      doc,
 		Chunks:   chunks,
 		Postings: postings,
