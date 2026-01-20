@@ -29,5 +29,13 @@ type IndexStore interface {
 
 	UpdateStats(stats domain.Stats) error
 
+	BatchIndex(files []IndexedFile) error
+
 	Close() error
+}
+
+type IndexedFile struct {
+	Doc      domain.Document
+	Chunks   []domain.Chunk
+	Postings map[string]map[string]int
 }

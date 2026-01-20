@@ -8,6 +8,7 @@ import (
 
 	"go.etcd.io/bbolt"
 	"rag/internal/domain"
+	"rag/internal/port"
 )
 
 var (
@@ -354,13 +355,7 @@ func (s *BoltStore) AllTerms() ([]string, error) {
 	return terms, err
 }
 
-type IndexedFile struct {
-	Doc      domain.Document
-	Chunks   []domain.Chunk
-	Postings map[string]map[string]int
-}
-
-func (s *BoltStore) BatchIndex(files []IndexedFile) error {
+func (s *BoltStore) BatchIndex(files []port.IndexedFile) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		docsBucket := tx.Bucket(bucketDocs)
 		chunksBucket := tx.Bucket(bucketChunks)

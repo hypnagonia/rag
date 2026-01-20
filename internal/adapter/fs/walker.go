@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/bmatcuk/doublestar/v4"
+	"rag/internal/port"
 )
 
 type Walker struct {
@@ -22,14 +23,8 @@ func NewWalker(includes, excludes []string) *Walker {
 	}
 }
 
-type FileInfo struct {
-	Path    string
-	ModTime int64
-	Size    int64
-}
-
-func (w *Walker) Walk(root string) ([]FileInfo, error) {
-	var files []FileInfo
+func (w *Walker) Walk(root string) ([]port.FileInfo, error) {
+	var files []port.FileInfo
 
 	root, err := filepath.Abs(root)
 	if err != nil {
@@ -59,7 +54,7 @@ func (w *Walker) Walk(root string) ([]FileInfo, error) {
 		}
 
 		if w.shouldInclude(relPath) && !w.shouldExclude(relPath) {
-			files = append(files, FileInfo{
+			files = append(files, port.FileInfo{
 				Path:    path,
 				ModTime: info.ModTime().Unix(),
 				Size:    info.Size(),

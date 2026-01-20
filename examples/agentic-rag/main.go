@@ -25,12 +25,14 @@ import (
 )
 
 const (
-	promptExpandQuery = `Generate 3 search queries to find relevant passages. Output one query per line, no numbering.
-	Query must not contain the answer to the question!
+	promptExpandQuery = `Generate 3 search queries to find relevant passages.
+	
+	Generate 3 search queries to find relevant passages, using following rules:
 	Rules:
-	- Try to use different forms of names, nicknames, synonyms, etc.
-	- Include HOW events happened 
-	- One query should focus on the scene itself with descriptive words
+	- Try to use different forms of words, highly common synonyms, etc.
+	- Query should not be direct citation from books or tv series
+	- Query must not contain the answer to the question! 
+	- Output one query per line, no numbering.
 `
 
 	promptEvaluateContext = `Given text passages and a question, respond in JSON:

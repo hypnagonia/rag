@@ -1,25 +1,24 @@
 package usecase
 
 import (
-	"rag/internal/adapter/retriever"
 	"rag/internal/domain"
 	"rag/internal/port"
 )
 
 type RetrieveUseCase struct {
 	retriever         port.Retriever
-	mmrReranker       *retriever.MMRReranker
+	reranker          port.DiversityReranker
 	minScoreThreshold float64
 }
 
 func NewRetrieveUseCase(
 	retriever port.Retriever,
-	mmrReranker *retriever.MMRReranker,
+	reranker port.DiversityReranker,
 	minScoreThreshold float64,
 ) *RetrieveUseCase {
 	return &RetrieveUseCase{
 		retriever:         retriever,
-		mmrReranker:       mmrReranker,
+		reranker:          reranker,
 		minScoreThreshold: minScoreThreshold,
 	}
 }
@@ -35,7 +34,7 @@ func (u *RetrieveUseCase) Retrieve(query string, topK int) ([]domain.ScoredChunk
 		return nil, nil
 	}
 
-	results := u.mmrReranker.Rerank(candidates, topK)
+	results := u.reranker.Rerank(candidates, topK)
 
 	if u.minScoreThreshold > 0 {
 		results = u.filterByThreshold(results)
