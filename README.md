@@ -44,6 +44,8 @@ $ rag query -q "How did Drogo die" -index ./books -expand
 >
 > **~5k tokens** (with RAG) vs **~2M tokens** (without RAG)
 
+<sub>Responses generated using DeepSeek with hybrid search (BM25 + embeddings)</sub>
+
 ---
 
 ## Installation
