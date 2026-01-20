@@ -13,6 +13,8 @@ type VectorStore interface {
 
 	Search(query []float32, k int) ([]VectorResult, error)
 
+	SearchSubset(query []float32, ids []string) ([]VectorResult, error)
+
 	Delete(ids []string) error
 
 	Count() (int, error)
