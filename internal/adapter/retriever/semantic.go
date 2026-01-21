@@ -3,7 +3,6 @@ package retriever
 import (
 	"fmt"
 
-	"rag/internal/adapter/store"
 	"rag/internal/domain"
 	"rag/internal/port"
 )
@@ -11,13 +10,13 @@ import (
 type SemanticRetriever struct {
 	vectorStore port.VectorStore
 	embedder    port.Embedder
-	chunkStore  *store.BoltStore
+	chunkStore  port.IndexStore
 }
 
 func NewSemanticRetriever(
 	vectorStore port.VectorStore,
 	embedder port.Embedder,
-	chunkStore *store.BoltStore,
+	chunkStore port.IndexStore,
 ) *SemanticRetriever {
 	return &SemanticRetriever{
 		vectorStore: vectorStore,

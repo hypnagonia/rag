@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG WASM Demo</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1a1a2e;
+            color: #eee;
+        }
+        h1 {
+            color: #00d4ff;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #888;
+            margin-bottom: 30px;
+        }
+        .section {
+            background: #16213e;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        h2 {
+            color: #00d4ff;
+            margin-top: 0;
+            font-size: 1.2em;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #aaa;
+        }
+        input[type="text"], textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #333;
+            border-radius: 4px;
+            background: #0f0f23;
+            color: #eee;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        textarea {
+            min-height: 150px;
+            resize: vertical;
+        }
+        button {
+            background: #00d4ff;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 10px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #00b8e6;
+        }
+        button:disabled {
+            background: #444;
+            color: #888;
+            cursor: not-allowed;
+        }
+        .stats {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .stat {
+            background: #0f0f23;
+            padding: 15px;
+            border-radius: 4px;
+            min-width: 120px;
+        }
+        .stat-value {
+            font-size: 24px;
+            color: #00d4ff;
+            font-weight: bold;
+        }
+        .stat-label {
+            color: #888;
+            font-size: 12px;
+        }
+        .results {
+            margin-top: 20px;
+        }
+        .result {
+            background: #0f0f23;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-left: 3px solid #00d4ff;
+        }
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .result-path {
+            color: #00d4ff;
+            font-family: monospace;
+        }
+        .result-score {
+            color: #888;
+        }
+        .result-text {
+            font-family: monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+            background: #1a1a2e;
+            padding: 10px;
+            border-radius: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .loading {
+            color: #00d4ff;
+            padding: 20px;
+            text-align: center;
+        }
+        .error {
+            color: #ff6b6b;
+            padding: 10px;
+            background: rgba(255, 107, 107, 0.1);
+            border-radius: 4px;
+        }
+        .files-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .file-tag {
+            background: #0f0f23;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h1>RAG WASM Demo</h1>
+    <p class="subtitle">BM25 search with MMR deduplication - runs entirely in browser</p>
+
+    <div id="loading" class="loading">Loading WASM module...</div>
+
+    <div id="app" style="display: none;">
+        <div class="section">
+            <h2>Index Content</h2>
+            <label for="filename">Filename</label>
+            <input type="text" id="filename" placeholder="example.txt" value="sample.txt">
+            <label for="content" style="margin-top: 15px;">Content</label>
+            <textarea id="content" placeholder="Paste your text content here...">The quick brown fox jumps over the lazy dog.
+
+Authentication is handled by the AuthService class which validates JWT tokens.
+The validateToken method checks the signature and expiration date.
+
+User registration requires email verification. The VerificationService sends
+a confirmation email with a unique token that expires after 24 hours.
+
+Database connections are managed by the ConnectionPool class.
+It maintains a pool of reusable connections to improve performance.
+
+Error handling follows a consistent pattern across all services.
+Each service throws typed exceptions that are caught by the global error handler.</textarea>
+            <div>
+                <button onclick="indexContent()">Index Content</button>
+                <button onclick="clearIndex()">Clear Index</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Statistics</h2>
+            <div class="stats" id="stats">
+                <div class="stat">
+                    <div class="stat-value" id="stat-docs">0</div>
+                    <div class="stat-label">Documents</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="stat-chunks">0</div>
+                    <div class="stat-label">Chunks</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="stat-avg">0</div>
+                    <div class="stat-label">Avg Tokens/Chunk</div>
+                </div>
+            </div>
+            <div class="files-list" id="files-list"></div>
+        </div>
+
+        <div class="section">
+            <h2>Search</h2>
+            <label for="query">Query</label>
+            <input type="text" id="query" placeholder="Enter search query..." value="authentication token">
+            <button onclick="search()">Search</button>
+            <div class="results" id="results"></div>
+        </div>
+    </div>
+
+    <script src="wasm_exec.js"></script>
+    <script>
+        const go = new Go();
+
+        WebAssembly.instantiateStreaming(fetch("rag.wasm"), go.importObject).then((result) => {
+            go.run(result.instance);
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('app').style.display = 'block';
+            updateStats();
+        }).catch(err => {
+            document.getElementById('loading').innerHTML =
+                '<div class="error">Failed to load WASM: ' + err.message + '</div>';
+        });
+
+        function indexContent() {
+            const filename = document.getElementById('filename').value || 'unnamed.txt';
+            const content = document.getElementById('content').value;
+
+            if (!content.trim()) {
+                alert('Please enter some content to index');
+                return;
+            }
+
+            try {
+                const result = JSON.parse(ragIndex(filename, content));
+                if (result.error) {
+                    alert('Error: ' + result.error);
+                } else {
+                    updateStats();
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
+        function clearIndex() {
+            try {
+                ragClear();
+                updateStats();
+                document.getElementById('results').innerHTML = '';
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
+        function updateStats() {
+            try {
+                const stats = JSON.parse(ragStats());
+                document.getElementById('stat-docs').textContent = stats.totalDocs || 0;
+                document.getElementById('stat-chunks').textContent = stats.totalChunks || 0;
+                document.getElementById('stat-avg').textContent = (stats.avgChunkLen || 0).toFixed(1);
+
+                const filesList = document.getElementById('files-list');
+                if (stats.files && stats.files.length > 0) {
+                    filesList.innerHTML = stats.files.map(f =>
+                        `<span class="file-tag">${f}</span>`
+                    ).join('');
+                } else {
+                    filesList.innerHTML = '<span style="color: #888;">No files indexed</span>';
+                }
+            } catch (e) {
+                console.error('Failed to get stats:', e);
+            }
+        }
+
+        function search() {
+            const query = document.getElementById('query').value;
+            if (!query.trim()) {
+                alert('Please enter a search query');
+                return;
+            }
+
+            try {
+                const result = JSON.parse(ragQuery(query, 5));
+                const resultsDiv = document.getElementById('results');
+
+                if (result.error) {
+                    resultsDiv.innerHTML = `<div class="error">${result.error}</div>`;
+                    return;
+                }
+
+                if (!result.results || result.results.length === 0) {
+                    resultsDiv.innerHTML = '<p style="color: #888;">No results found</p>';
+                    return;
+                }
+
+                resultsDiv.innerHTML = result.results.map((r, i) => `
+                    <div class="result">
+                        <div class="result-header">
+                            <span class="result-path">${r.path}:L${r.startLine}-${r.endLine}</span>
+                            <span class="result-score">Score: ${r.score.toFixed(3)}</span>
+                        </div>
+                        <div class="result-text">${escapeHtml(r.text)}</div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                document.getElementById('results').innerHTML =
+                    `<div class="error">Search failed: ${e.message}</div>`;
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Search on Enter key
+        document.getElementById('query').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') search();
+        });
+    </script>
+</body>
+</html>
