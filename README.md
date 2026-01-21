@@ -1,6 +1,6 @@
 # RAG Context Compressor
 
-A CLI tool for indexing local files using hybrid search (BM25 + vector embeddings), ranking results with MMR deduplication, and packing compressed context with citations for LLM consumption.
+A tool for indexing and searching text using hybrid search (BM25 + vector embeddings), with MMR deduplication and context packing for LLM consumption. Runs as CLI or in-browser via WebAssembly.
 
 ## Example: Querying Game of Thrones (5 books, ~2M tokens)
 
