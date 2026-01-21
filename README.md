@@ -309,10 +309,51 @@ Requires embeddings to be enabled and indexed (see Hybrid Search section above).
 }
 ```
 
+## WebAssembly (Browser)
+
+RAG can run entirely in the browser via WebAssembly (BM25 search only, no embeddings).
+
+### Build WASM
+
+```bash
+make build-wasm
+# Or manually:
+GOOS=js GOARCH=wasm go build -o examples/wasm/rag.wasm ./cmd/wasm
+```
+
+### Run Demo
+
+```bash
+cd examples/wasm
+python3 -m http.server 8080
+# Open http://localhost:8080
+```
+
+### JavaScript API
+
+```javascript
+// Index content
+ragIndex("file.txt", "Your text content here...")
+
+// Search (returns JSON string)
+const results = JSON.parse(ragQuery("search term", 5))
+
+// Clear index
+ragClear()
+
+// Get statistics
+const stats = JSON.parse(ragStats())
+```
+
+See [examples/wasm/README.md](examples/wasm/README.md) for details.
+
+---
+
 ## Architecture
 
 ```
 cmd/rag/main.go          # Entrypoint
+cmd/wasm/main.go         # WASM entrypoint
 internal/
 ├── domain/              # Core entities (Document, Chunk, etc.)
 ├── port/                # Interfaces (IndexStore, Retriever, etc.)
