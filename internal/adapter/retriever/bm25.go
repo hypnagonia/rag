@@ -6,20 +6,19 @@ import (
 	"sort"
 	"strings"
 
-	"rag/internal/adapter/analyzer"
-	"rag/internal/adapter/store"
 	"rag/internal/domain"
+	"rag/internal/port"
 )
 
 type BM25Retriever struct {
-	store           *store.BoltStore
-	tokenizer       *analyzer.Tokenizer
+	store           port.IndexStore
+	tokenizer       port.Tokenizer
 	k1              float64
 	b               float64
 	pathBoostWeight float64
 }
 
-func NewBM25Retriever(store *store.BoltStore, tokenizer *analyzer.Tokenizer, k1, b, pathBoostWeight float64) *BM25Retriever {
+func NewBM25Retriever(store port.IndexStore, tokenizer port.Tokenizer, k1, b, pathBoostWeight float64) *BM25Retriever {
 	return &BM25Retriever{
 		store:           store,
 		tokenizer:       tokenizer,

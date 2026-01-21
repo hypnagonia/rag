@@ -3,7 +3,6 @@ package retriever
 import (
 	"fmt"
 
-	"rag/internal/adapter/store"
 	"rag/internal/domain"
 	"rag/internal/port"
 )
@@ -12,14 +11,14 @@ type HyDERetriever struct {
 	llm         port.LLM
 	embedder    port.Embedder
 	vectorStore port.VectorStore
-	chunkStore  *store.BoltStore
+	chunkStore  port.IndexStore
 }
 
 func NewHyDERetriever(
 	llm port.LLM,
 	embedder port.Embedder,
 	vectorStore port.VectorStore,
-	chunkStore *store.BoltStore,
+	chunkStore port.IndexStore,
 ) *HyDERetriever {
 	return &HyDERetriever{
 		llm:         llm,

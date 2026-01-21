@@ -3,7 +3,6 @@ package retriever
 import (
 	"sort"
 
-	"rag/internal/adapter/store"
 	"rag/internal/domain"
 	"rag/internal/port"
 )
@@ -12,7 +11,7 @@ type HybridRetriever struct {
 	bm25        *BM25Retriever
 	vectorStore port.VectorStore
 	embedder    port.Embedder
-	chunkStore  *store.BoltStore
+	chunkStore  port.IndexStore
 	rrfK        int
 	bm25Weight  float64
 }
@@ -21,7 +20,7 @@ func NewHybridRetriever(
 	bm25 *BM25Retriever,
 	vectorStore port.VectorStore,
 	embedder port.Embedder,
-	chunkStore *store.BoltStore,
+	chunkStore port.IndexStore,
 	rrfK int,
 	bm25Weight float64,
 ) *HybridRetriever {
