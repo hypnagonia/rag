@@ -37,3 +37,6 @@ examples/*/main
 agentic-rag
 rag
 benchmark
+
+# WASM build output
+*.wasm
