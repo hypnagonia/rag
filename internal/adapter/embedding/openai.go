@@ -7,7 +7,13 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sync"
 	"time"
+)
+
+const (
+	defaultMaxBatch = 100
+	defaultRetries  = 3
 )
 
 type OpenAIEmbedder struct {
@@ -15,7 +21,10 @@ type OpenAIEmbedder struct {
 	model     string
 	baseURL   string
 	dimension int
+	maxBatch  int
 	client    *http.Client
+
+	probeOnce sync.Once
 }
 
 type embeddingRequest struct {
@@ -44,83 +53,17 @@ type apiError struct {
 	Type    string `json:"type"`
 }
 
-func NewOpenAIEmbedder(apiKeyEnv, model string) (*OpenAIEmbedder, error) {
-	return NewOpenAICompatibleEmbedder(apiKeyEnv, model, "https://api.openai.com/v1")
-}
-
-func NewDeepSeekEmbedder(apiKeyEnv, model string) (*OpenAIEmbedder, error) {
-	return NewOpenAICompatibleEmbedder(apiKeyEnv, model, "https://api.deepseek.com/v1")
-}
-
-func NewJinaEmbedder(apiKeyEnv, model string) (*OpenAIEmbedder, error) {
-	return NewOpenAICompatibleEmbedder(apiKeyEnv, model, "https://api.jina.ai/v1")
-}
-
-func NewOllamaEmbedder(model, baseURL string) (*OpenAIEmbedder, error) {
-	if baseURL == "" {
-		baseURL = "http://localhost:11434/v1"
-	}
-
-	dimension := 768
-	switch model {
-	case "nomic-embed-text":
-		dimension = 768
-	case "mxbai-embed-large":
-		dimension = 1024
-	case "all-minilm":
-		dimension = 384
-	}
-
-	return &OpenAIEmbedder{
-		apiKey:    "ollama",
-		model:     model,
-		baseURL:   baseURL,
-		dimension: dimension,
-		client: &http.Client{
-			Timeout: 120 * time.Second,
-		},
-	}, nil
-}
-
-func NewOpenAICompatibleEmbedder(apiKeyEnv, model, baseURL string) (*OpenAIEmbedder, error) {
-	apiKey := os.Getenv(apiKeyEnv)
-	if apiKey == "" {
-		return nil, fmt.Errorf("API key not found in environment variable: %s", apiKeyEnv)
-	}
-
-	dimension := 1536
-	switch model {
-	case "text-embedding-3-small":
-		dimension = 1536
-	case "text-embedding-3-large":
-		dimension = 3072
-	case "text-embedding-ada-002":
-		dimension = 1536
-
-	case "jina-embeddings-v3":
-		dimension = 1024
-	case "jina-embeddings-v4":
-		dimension = 2048
-	}
-
-	return &OpenAIEmbedder{
-		apiKey:    apiKey,
-		model:     model,
-		baseURL:   baseURL,
-		dimension: dimension,
-		client: &http.Client{
-			Timeout: 60 * time.Second,
-		},
-	}, nil
-}
-
 func (e *OpenAIEmbedder) Embed(texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, nil
 	}
 
-	const maxBatch = 100
-	var allEmbeddings [][]float32
+	maxBatch := e.maxBatch
+	if maxBatch <= 0 {
+		maxBatch = defaultMaxBatch
+	}
+
+	allEmbeddings := make([][]float32, 0, len(texts))
 
 	for i := 0; i < len(texts); i += maxBatch {
 		end := i + maxBatch
@@ -129,7 +72,7 @@ func (e *OpenAIEmbedder) Embed(texts []string) ([][]float32, error) {
 		}
 		batch := texts[i:end]
 
-		embeddings, err := e.embedBatch(batch)
+		embeddings, err := e.embedBatchWithRetry(batch)
 		if err != nil {
 			return nil, err
 		}
@@ -139,7 +82,28 @@ func (e *OpenAIEmbedder) Embed(texts []string) ([][]float32, error) {
 	return allEmbeddings, nil
 }
 
-func (e *OpenAIEmbedder) embedBatch(texts []string) ([][]float32, error) {
+func (e *OpenAIEmbedder) embedBatchWithRetry(texts []string) ([][]float32, error) {
+	var lastErr error
+
+	for attempt := 0; attempt < defaultRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(1<<uint(attempt-1)) * time.Second)
+		}
+
+		embeddings, retryable, err := e.embedBatch(texts)
+		if err == nil {
+			return embeddings, nil
+		}
+		lastErr = err
+		if !retryable {
+			return nil, err
+		}
+	}
+
+	return nil, fmt.Errorf("embedding failed after %d attempts: %w", defaultRetries, lastErr)
+}
+
+func (e *OpenAIEmbedder) embedBatch(texts []string) ([][]float32, bool, error) {
 	reqBody := embeddingRequest{
 		Input: texts,
 		Model: e.model,
@@ -147,12 +111,12 @@ func (e *OpenAIEmbedder) embedBatch(texts []string) ([][]float32, error) {
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, false, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", e.baseURL+"/embeddings", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, false, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -160,43 +124,61 @@ func (e *OpenAIEmbedder) embedBatch(texts []string) ([][]float32, error) {
 
 	resp, err := e.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, true, fmt.Errorf("request to %s failed: %w", e.baseURL, err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, true, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		retryable := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
+		return nil, retryable, fmt.Errorf("embedding API %s returned status %d: %s", e.baseURL, resp.StatusCode, truncate(string(body), 300))
 	}
 
 	var embResp embeddingResponse
 	if err := json.Unmarshal(body, &embResp); err != nil {
-		bodyPreview := string(body)
-		if len(bodyPreview) > 200 {
-			bodyPreview = bodyPreview[:200]
-		}
-		return nil, fmt.Errorf("failed to parse response (body: %s): %w", bodyPreview, err)
+		return nil, false, fmt.Errorf("failed to parse response (body: %s): %w", truncate(string(body), 200), err)
 	}
 
 	if embResp.Error != nil {
-		return nil, fmt.Errorf("API error: %s", embResp.Error.Message)
+		return nil, false, fmt.Errorf("embedding API error: %s", embResp.Error.Message)
+	}
+
+	if len(embResp.Data) != len(texts) {
+		return nil, false, fmt.Errorf("embedding API returned %d embeddings for %d inputs (model %q)", len(embResp.Data), len(texts), e.model)
 	}
 
 	embeddings := make([][]float32, len(texts))
 	for _, data := range embResp.Data {
-		if data.Index < len(embeddings) {
-			embeddings[data.Index] = data.Embedding
+		if data.Index < 0 || data.Index >= len(embeddings) {
+			return nil, false, fmt.Errorf("embedding API returned out-of-range index %d for %d inputs", data.Index, len(texts))
+		}
+		embeddings[data.Index] = data.Embedding
+	}
+
+	for i, emb := range embeddings {
+		if len(emb) == 0 {
+			return nil, false, fmt.Errorf("embedding API returned an empty vector at position %d (model %q)", i, e.model)
+		}
+		if len(emb) != len(embeddings[0]) {
+			return nil, false, fmt.Errorf("embedding API returned inconsistent dimensions: %d vs %d", len(emb), len(embeddings[0]))
 		}
 	}
 
-	return embeddings, nil
+	return embeddings, false, nil
 }
 
 func (e *OpenAIEmbedder) Dimension() int {
+	e.probeOnce.Do(func() {
+		probe, _, err := e.embedBatch([]string{"dimension probe"})
+		if err != nil || len(probe) == 0 || len(probe[0]) == 0 {
+			return
+		}
+		e.dimension = len(probe[0])
+	})
 	return e.dimension
 }
 
@@ -204,24 +186,28 @@ func (e *OpenAIEmbedder) ModelName() string {
 	return e.model
 }
 
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
+}
+
 type MockEmbedder struct {
 	dimension int
 }
 
 func NewMockEmbedder(dimension int) *MockEmbedder {
+	if dimension <= 0 {
+		dimension = 64
+	}
 	return &MockEmbedder{dimension: dimension}
 }
 
 func (e *MockEmbedder) Embed(texts []string) ([][]float32, error) {
 	embeddings := make([][]float32, len(texts))
-	for i := range texts {
-		embeddings[i] = make([]float32, e.dimension)
-
-		for j, r := range texts[i] {
-			if j < e.dimension {
-				embeddings[i][j] = float32(r) / 1000.0
-			}
-		}
+	for i, text := range texts {
+		embeddings[i] = hashBagOfWords(text, e.dimension)
 	}
 	return embeddings, nil
 }
@@ -232,4 +218,56 @@ func (e *MockEmbedder) Dimension() int {
 
 func (e *MockEmbedder) ModelName() string {
 	return "mock"
+}
+
+func hashBagOfWords(text string, dimension int) []float32 {
+	vec := make([]float32, dimension)
+
+	word := make([]rune, 0, 32)
+	flush := func() {
+		if len(word) == 0 {
+			return
+		}
+		var h uint32 = 2166136261
+		for _, r := range word {
+			if r >= 'A' && r <= 'Z' {
+				r += 'a' - 'A'
+			}
+			h = (h ^ uint32(r)) * 16777619
+		}
+		vec[h%uint32(dimension)] += 1
+		word = word[:0]
+	}
+
+	for _, r := range text {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			word = append(word, r)
+		} else {
+			flush()
+		}
+	}
+	flush()
+
+	if allZero(vec) {
+		vec[0] = 1
+	}
+
+	return vec
+}
+
+func allZero(v []float32) bool {
+	for _, x := range v {
+		if x != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func envAPIKey(apiKeyEnv string) (string, error) {
+	key := os.Getenv(apiKeyEnv)
+	if key == "" {
+		return "", fmt.Errorf("API key not found in environment variable: %s", apiKeyEnv)
+	}
+	return key, nil
 }

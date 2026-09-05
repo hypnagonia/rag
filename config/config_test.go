@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -94,5 +95,46 @@ func TestIndexDBPath(t *testing.T) {
 	expected := filepath.Join("/home/user/project", ".rag", "index.db")
 	if path != expected {
 		t.Errorf("expected %s, got %s", expected, path)
+	}
+}
+
+func TestDefaultConfigIncludesGoAndPythonSources(t *testing.T) {
+	cfg := DefaultConfig()
+
+	required := []string{"**/*.go", "**/*.py"}
+	for _, want := range required {
+		found := false
+		for _, got := range cfg.Index.Includes {
+			if got == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("default includes are missing %q: %v", want, cfg.Index.Includes)
+		}
+	}
+
+	for _, pattern := range cfg.Index.Includes {
+		if strings.HasPrefix(pattern, "***") {
+			t.Errorf("malformed include glob %q", pattern)
+		}
+	}
+}
+
+func TestDefaultConfigExcludesVendorDirsSeparately(t *testing.T) {
+	cfg := DefaultConfig()
+
+	for _, want := range []string{"**/node_modules/**", "**/vendor/**"} {
+		found := false
+		for _, got := range cfg.Index.Excludes {
+			if got == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("default excludes are missing %q: %v", want, cfg.Index.Excludes)
+		}
 	}
 }

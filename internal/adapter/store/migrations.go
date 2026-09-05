@@ -174,7 +174,7 @@ func (s *BoltStore) runMigration(from, to int) error {
 
 func (s *BoltStore) Clear() error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
-		buckets := [][]byte{bucketDocs, bucketChunks, bucketBlobs, bucketTerms, bucketDocChunks}
+		buckets := [][]byte{bucketDocs, bucketChunks, bucketBlobs, bucketTerms, bucketDocChunks, bucketVectors, bucketVectorMeta}
 		for _, name := range buckets {
 			b := tx.Bucket(name)
 			if b == nil {

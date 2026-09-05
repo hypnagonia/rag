@@ -129,17 +129,14 @@ func setupEmbedding(st *store.BoltStore, cfg *config.Config) (port.Embedder, por
 		return nil, nil, fmt.Errorf("embeddings not enabled in config")
 	}
 
-	var embedder port.Embedder
-	var err error
-
-	switch cfg.Embedding.Provider {
-	case "ollama":
-		embedder, err = embedding.NewOllamaEmbedder(cfg.Embedding.Model, cfg.Embedding.BaseURL)
-	case "openai":
-		embedder, err = embedding.NewOpenAIEmbedder(cfg.Embedding.APIKeyEnv, cfg.Embedding.Model)
-	default:
-		return nil, nil, fmt.Errorf("unsupported provider: %s", cfg.Embedding.Provider)
-	}
+	embedder, err := embedding.NewBuilder().
+		Provider(cfg.Embedding.Provider).
+		Model(cfg.Embedding.Model).
+		APIKeyEnv(cfg.Embedding.APIKeyEnv).
+		BaseURL(cfg.Embedding.BaseURL).
+		Dimension(cfg.Embedding.Dimension).
+		BatchSize(cfg.Embedding.BatchSize).
+		Build()
 	if err != nil {
 		return nil, nil, fmt.Errorf("embedder init failed: %w", err)
 	}

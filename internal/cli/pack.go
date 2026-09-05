@@ -14,10 +14,11 @@ import (
 )
 
 var (
-	packQuery  string
-	packBudget int
-	packOutput string
-	packTopK   int
+	packQuery   string
+	packBudget  int
+	packOutput  string
+	packTopK    int
+	packLexical bool
 )
 
 var packCmd = &cobra.Command{
@@ -38,6 +39,7 @@ func init() {
 	packCmd.Flags().IntVarP(&packBudget, "budget", "b", 0, "token budget (default from config)")
 	packCmd.Flags().StringVarP(&packOutput, "output", "o", "", "output file (default: stdout)")
 	packCmd.Flags().IntVarP(&packTopK, "top-k", "k", 0, "candidate pool size (default from config)")
+	packCmd.Flags().BoolVar(&packLexical, "lexical", false, "use only BM25 keyword search (no embeddings)")
 	packCmd.MarkFlagRequired("query")
 }
 
@@ -58,10 +60,22 @@ func runPack(cmd *cobra.Command, args []string) error {
 
 	tokenizer := analyzer.NewTokenizer(cfg.Index.Stemming)
 
-	bm25 := retriever.NewBM25Retriever(st, tokenizer, cfg.Index.K1, cfg.Index.B, cfg.Retrieve.PathBoostWeight)
 	mmr := retriever.NewMMRReranker(cfg.Retrieve.MMRLambda, cfg.Retrieve.DedupJaccard)
 
-	retrieveUC := usecase.NewRetrieveUseCase(bm25, mmr, cfg.Retrieve.MinScoreThreshold)
+	mode := ModeAuto
+	if packLexical {
+		mode = ModeLexical
+	}
+
+	searchRetriever, plan, err := buildRetriever(st, cfg, tokenizer, mode)
+	if err != nil {
+		return err
+	}
+	if plan.Warning != "" {
+		fmt.Fprintln(os.Stderr, plan.Describe())
+	}
+
+	retrieveUC := usecase.NewRetrieveUseCase(searchRetriever, mmr, cfg.Retrieve.MinScoreThreshold)
 	packUC := usecase.NewPackUseCase(st, tokenizer, cfg.Pack.RecencyBoost)
 
 	topK := cfg.Retrieve.TopK

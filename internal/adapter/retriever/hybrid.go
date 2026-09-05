@@ -2,13 +2,40 @@ package retriever
 
 import (
 	"sort"
+	"sync"
 
 	"rag/internal/domain"
 	"rag/internal/port"
 )
 
+const (
+	defaultRRFK    = 60
+	minCandidates  = 50
+	candidateRatio = 4
+)
+
 type HybridRetriever struct {
-	bm25        *BM25Retriever
+	bm25        port.Retriever
+	vectorStore port.VectorStore
+	embedder    port.Embedder
+	chunkStore  port.IndexStore
+	rrfK        int
+	bm25Weight  float64
+
+	mu    sync.Mutex
+	stats HybridStats
+}
+
+type HybridStats struct {
+	BM25Candidates   int
+	VectorCandidates int
+	Fused            int
+	BM25Error        error
+	VectorError      error
+}
+
+type HybridBuilder struct {
+	bm25        port.Retriever
 	vectorStore port.VectorStore
 	embedder    port.Embedder
 	chunkStore  port.IndexStore
@@ -16,82 +43,138 @@ type HybridRetriever struct {
 	bm25Weight  float64
 }
 
-func NewHybridRetriever(
-	bm25 *BM25Retriever,
-	vectorStore port.VectorStore,
-	embedder port.Embedder,
-	chunkStore port.IndexStore,
-	rrfK int,
-	bm25Weight float64,
-) *HybridRetriever {
-	if rrfK <= 0 {
-		rrfK = 60
+func NewHybridBuilder() *HybridBuilder {
+	return &HybridBuilder{
+		rrfK:       defaultRRFK,
+		bm25Weight: 0.5,
 	}
-	if bm25Weight < 0 || bm25Weight > 1 {
-		bm25Weight = 0.5
-	}
+}
 
-	return &HybridRetriever{
-		bm25:        bm25,
-		vectorStore: vectorStore,
-		embedder:    embedder,
-		chunkStore:  chunkStore,
-		rrfK:        rrfK,
-		bm25Weight:  bm25Weight,
+func (b *HybridBuilder) BM25(r port.Retriever) *HybridBuilder {
+	b.bm25 = r
+	return b
+}
+
+func (b *HybridBuilder) VectorStore(vs port.VectorStore) *HybridBuilder {
+	b.vectorStore = vs
+	return b
+}
+
+func (b *HybridBuilder) Embedder(e port.Embedder) *HybridBuilder {
+	b.embedder = e
+	return b
+}
+
+func (b *HybridBuilder) ChunkStore(s port.IndexStore) *HybridBuilder {
+	b.chunkStore = s
+	return b
+}
+
+func (b *HybridBuilder) RRFK(k int) *HybridBuilder {
+	if k > 0 {
+		b.rrfK = k
 	}
+	return b
+}
+
+func (b *HybridBuilder) BM25Weight(w float64) *HybridBuilder {
+	if w >= 0 && w <= 1 {
+		b.bm25Weight = w
+	}
+	return b
+}
+
+func (b *HybridBuilder) Build() *HybridRetriever {
+	return &HybridRetriever{
+		bm25:        b.bm25,
+		vectorStore: b.vectorStore,
+		embedder:    b.embedder,
+		chunkStore:  b.chunkStore,
+		rrfK:        b.rrfK,
+		bm25Weight:  b.bm25Weight,
+	}
+}
+
+func (r *HybridRetriever) Stats() HybridStats {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.stats
 }
 
 func (r *HybridRetriever) Search(query string, k int) ([]domain.ScoredChunk, error) {
-	if r.vectorStore == nil || r.embedder == nil {
-		return r.bm25.Search(query, k)
+	if k <= 0 {
+		return nil, nil
 	}
 
-	candidateK := k * 10
-	if candidateK < 50 {
-		candidateK = 50
+	poolSize := k * candidateRatio
+	if poolSize < minCandidates {
+		poolSize = minCandidates
 	}
 
-	bm25Results, err := r.bm25.Search(query, candidateK)
-	if err != nil || len(bm25Results) == 0 {
-		return r.vectorOnlySearch(query, k)
+	var (
+		bm25Results   []domain.ScoredChunk
+		vectorResults []domain.ScoredChunk
+		bm25Err       error
+		vectorErr     error
+		wg            sync.WaitGroup
+	)
+
+	if r.bm25 != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			bm25Results, bm25Err = r.bm25.Search(query, poolSize)
+		}()
 	}
 
-	queryEmbedding, err := r.embedder.Embed([]string{query})
-	if err != nil || len(queryEmbedding) == 0 {
-		return bm25Results[:min(k, len(bm25Results))], nil
+	if r.vectorStore != nil && r.embedder != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			vectorResults, vectorErr = r.vectorSearch(query, poolSize)
+		}()
 	}
 
-	chunkIDs := make([]string, len(bm25Results))
-	for i, result := range bm25Results {
-		chunkIDs[i] = result.Chunk.ID
+	wg.Wait()
+
+	r.mu.Lock()
+	r.stats = HybridStats{
+		BM25Candidates:   len(bm25Results),
+		VectorCandidates: len(vectorResults),
+		BM25Error:        bm25Err,
+		VectorError:      vectorErr,
+	}
+	r.mu.Unlock()
+
+	if len(bm25Results) == 0 && len(vectorResults) == 0 {
+		if bm25Err != nil {
+			return nil, bm25Err
+		}
+		if vectorErr != nil {
+			return nil, vectorErr
+		}
+		return nil, nil
 	}
 
-	vectorScores, err := r.vectorStore.SearchSubset(queryEmbedding[0], chunkIDs)
-	if err != nil {
-		return bm25Results[:min(k, len(bm25Results))], nil
+	fused := r.fuseRRF(bm25Results, vectorResults)
+
+	r.mu.Lock()
+	r.stats.Fused = len(fused)
+	r.mu.Unlock()
+
+	if len(fused) > k {
+		fused = fused[:k]
 	}
 
-	vectorScoreMap := make(map[string]float64)
-	for _, vs := range vectorScores {
-		vectorScoreMap[vs.ID] = vs.Score
-	}
-
-	reranked := r.combineScores(bm25Results, vectorScoreMap)
-
-	if len(reranked) > k {
-		reranked = reranked[:k]
-	}
-
-	return reranked, nil
+	return fused, nil
 }
 
 func (r *HybridRetriever) vectorSearch(query string, k int) ([]domain.ScoredChunk, error) {
-
 	embeddings, err := r.embedder.Embed([]string{query})
 	if err != nil {
 		return nil, err
 	}
-	if len(embeddings) == 0 {
+	if len(embeddings) == 0 || len(embeddings[0]) == 0 {
 		return nil, nil
 	}
 
@@ -115,48 +198,38 @@ func (r *HybridRetriever) vectorSearch(query string, k int) ([]domain.ScoredChun
 	return chunks, nil
 }
 
-func (r *HybridRetriever) vectorOnlySearch(query string, k int) ([]domain.ScoredChunk, error) {
-	return r.vectorSearch(query, k)
-}
-
-func (r *HybridRetriever) combineScores(bm25Results []domain.ScoredChunk, vectorScores map[string]float64) []domain.ScoredChunk {
-	if len(bm25Results) == 0 {
-		return nil
-	}
-
-	maxBM25 := bm25Results[0].Score
-	minBM25 := bm25Results[len(bm25Results)-1].Score
-	bm25Range := maxBM25 - minBM25
-	if bm25Range == 0 {
-		bm25Range = 1
-	}
-
+func (r *HybridRetriever) fuseRRF(bm25Results, vectorResults []domain.ScoredChunk) []domain.ScoredChunk {
 	vectorWeight := 1.0 - r.bm25Weight
-	results := make([]domain.ScoredChunk, 0, len(bm25Results))
 
-	for _, result := range bm25Results {
-		normalizedBM25 := (result.Score - minBM25) / bm25Range
+	scores := make(map[string]float64)
+	chunks := make(map[string]domain.Chunk)
+	order := make([]string, 0, len(bm25Results)+len(vectorResults))
 
-		vectorScore := vectorScores[result.Chunk.ID]
+	accumulate := func(results []domain.ScoredChunk, weight float64) {
+		for rank, result := range results {
+			id := result.Chunk.ID
+			if _, seen := chunks[id]; !seen {
+				chunks[id] = result.Chunk
+				order = append(order, id)
+			}
+			scores[id] += weight / float64(r.rrfK+rank+1)
+		}
+	}
 
-		combinedScore := r.bm25Weight*normalizedBM25 + vectorWeight*vectorScore
+	accumulate(bm25Results, r.bm25Weight)
+	accumulate(vectorResults, vectorWeight)
 
-		results = append(results, domain.ScoredChunk{
-			Chunk: result.Chunk,
-			Score: combinedScore,
+	fused := make([]domain.ScoredChunk, 0, len(order))
+	for _, id := range order {
+		fused = append(fused, domain.ScoredChunk{
+			Chunk: chunks[id],
+			Score: scores[id],
 		})
 	}
 
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Score > results[j].Score
+	sort.SliceStable(fused, func(i, j int) bool {
+		return fused[i].Score > fused[j].Score
 	})
 
-	return results
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
+	return fused
 }

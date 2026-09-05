@@ -40,3 +40,7 @@ benchmark
 
 # WASM build output
 *.wasm
+
+# Claude Code
+CLAUDE.md
+.claude/
