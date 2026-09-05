@@ -122,6 +122,7 @@ rag query -q "how to handle errors" --semantic
 - `--semantic` - Use embedding-only search (no BM25)
 - `--lexical` - Use BM25-only search (no embeddings)
 - `--explain` - Print which retrieval arms ran and how many candidates each produced
+- `--hyde` - Expand the query with one LLM-generated hypothetical answer (1 API call, cached)
 - `-c, --context` - Expand results by N lines before/after
 
 ### `rag pack -q "<question>"`
@@ -265,6 +266,44 @@ If embeddings are unavailable (provider down, index not embedded, model changed)
 and pack print a warning and fall back to BM25 rather than failing silently.
 
 `rag pack` uses the same retrieval path as `rag query`, so hybrid search applies there too.
+
+### Tuning vector quality
+
+Retrieval quality depends far more on the embedding model and chunk size than on the
+fusion parameters. Measured on a ~7.5MB prose corpus (14 questions, recall@10):
+
+| Setting | Vector recall@10 |
+|---|---|
+| `nomic-embed-text`, ~2200-char chunks | 2/14 |
+| `mxbai-embed-large`, ~540-char chunks | 6/14 |
+
+Raising `k` shows the answers are being found but ranked low - vector recall@200 is 10/14.
+If you need them in the top 10, add a reranking stage over a deep candidate pool; tuning
+`bm25_weight` does not help (recall@10 was flat at 6/14 across 0.2-0.65).
+
+`embedding.include_path` prepends `path:startLine-endLine` to each embedded chunk. This
+helps for code, where the path carries real signal, and hurts for prose - on the corpus
+above it cost 0.12 MRR. It defaults to `true`; set it to `false` for prose.
+
+Changing `embedding.model`, `embedding.dimension`, or `embedding.include_path` invalidates
+stored vectors. The index records what it was embedded with and re-embeds automatically.
+
+### HyDE query expansion
+
+`--hyde` makes exactly **one** LLM call per query to write a hypothetical answer passage,
+appends it to the query, and searches with both. The generated text is cached in the index,
+so repeating a query costs zero API calls. If the LLM fails, the search silently falls back
+to the plain query.
+
+Generation runs against a hosted API only - there is deliberately no local-LLM provider:
+
+```yaml
+llm:
+  provider: deepseek        # or openai
+  model: deepseek-chat
+  api_key_env: DEEPSEEK_API_KEY
+  max_tokens: 400
+```
 
 > **Note:** RRF scores are much smaller than BM25 scores (typically `0.005`-`0.03`). If you
 > set `retrieve.min_score_threshold`, tune it for whichever mode you actually run — a

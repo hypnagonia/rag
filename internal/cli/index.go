@@ -201,10 +201,10 @@ func generateEmbeddings(st *store.BoltStore, cfg *config.Config) (*usecase.Embed
 	if err != nil {
 		return nil, err
 	}
-	want := currentVectorMeta(embedder)
-	if meta != nil && (meta.Model != want.Model || meta.Dimension != want.Dimension) {
-		fmt.Printf("Embedding model changed (%s/%d -> %s/%d), discarding old vectors\n",
-			meta.Model, meta.Dimension, want.Model, want.Dimension)
+	want := currentVectorMeta(cfg, embedder)
+	if meta != nil && (meta.Model != want.Model || meta.Dimension != want.Dimension || meta.IncludePath != want.IncludePath) {
+		fmt.Printf("Embedding inputs changed (%s/%d/path=%v -> %s/%d/path=%v), discarding old vectors\n",
+			meta.Model, meta.Dimension, meta.IncludePath, want.Model, want.Dimension, want.IncludePath)
 		ids, err := vectorStore.IDs()
 		if err != nil {
 			return nil, err
@@ -220,6 +220,7 @@ func generateEmbeddings(st *store.BoltStore, cfg *config.Config) (*usecase.Embed
 		VectorStore(vectorStore).
 		BatchSize(cfg.Embedding.BatchSize).
 		Force(indexForceEmbed).
+		IncludePath(cfg.Embedding.IncludePath).
 		Build()
 	if err != nil {
 		return nil, err

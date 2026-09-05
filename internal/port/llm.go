@@ -18,3 +18,9 @@ type RerankedResult struct {
 	Index int
 	Score float64
 }
+
+type HypotheticalCache interface {
+	Get(query string) (string, bool)
+
+	Put(query, hypothetical string) error
+}

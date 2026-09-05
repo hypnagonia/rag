@@ -26,6 +26,7 @@ var (
 	querySemantic    bool
 	queryLexical     bool
 	queryExplain     bool
+	queryHyDE        bool
 	queryNoAutoIndex bool
 )
 
@@ -54,6 +55,7 @@ func init() {
 	queryCmd.Flags().IntVarP(&queryContext, "context", "c", 0, "expand results by N lines before/after")
 	queryCmd.Flags().BoolVar(&querySemantic, "semantic", false, "use only embedding/vector search (no BM25)")
 	queryCmd.Flags().BoolVar(&queryLexical, "lexical", false, "use only BM25 keyword search (no embeddings)")
+	queryCmd.Flags().BoolVar(&queryHyDE, "hyde", false, "expand the query with one LLM-generated hypothetical answer (1 API call, cached)")
 	queryCmd.Flags().BoolVar(&queryExplain, "explain", false, "print which retrieval arms ran and how many candidates each produced")
 	queryCmd.Flags().BoolVar(&queryNoAutoIndex, "no-auto-index", false, "error instead of auto-indexing when index is missing")
 	queryCmd.MarkFlagRequired("query")
@@ -120,6 +122,12 @@ func runQuery(cmd *cobra.Command, args []string) error {
 	searchRetriever, plan, err := buildRetriever(st, cfg, tokenizer, mode)
 	if err != nil {
 		return err
+	}
+	if queryHyDE {
+		searchRetriever, plan, err = wrapWithHyDE(st, cfg, searchRetriever, plan)
+		if err != nil {
+			return err
+		}
 	}
 	if queryExplain || plan.Warning != "" {
 		fmt.Fprintln(os.Stderr, plan.Describe())
