@@ -12,7 +12,6 @@ import (
 	"rag/config"
 	"rag/internal/adapter/analyzer"
 	"rag/internal/adapter/chunker"
-	"rag/internal/adapter/embedding"
 	"rag/internal/adapter/fs"
 	"rag/internal/adapter/store"
 	"rag/internal/port"
@@ -34,7 +33,10 @@ Examples:
 
 func init() {
 	rootCmd.AddCommand(indexCmd)
+	indexCmd.Flags().BoolVar(&indexForceEmbed, "force-embed", false, "re-embed every chunk instead of reusing existing vectors")
 }
+
+var indexForceEmbed bool
 
 func runIndex(cmd *cobra.Command, args []string) error {
 
@@ -154,10 +156,10 @@ func runIndex(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to update schema info: %w", err)
 	}
 
-	var embeddingsGenerated int
-	fmt.Printf("\nEmbedding config: enabled=%v, provider=%s, model=%s\n", cfg.Embedding.Enabled, cfg.Embedding.Provider, cfg.Embedding.Model)
+	var embedResult *usecase.EmbedResult
 	if cfg.Embedding.Enabled {
-		embeddingsGenerated, err = generateEmbeddings(st, cfg)
+		fmt.Printf("\nEmbeddings: provider=%s model=%s\n", cfg.Embedding.Provider, cfg.Embedding.Model)
+		embedResult, err = generateEmbeddings(st, cfg)
 		if err != nil {
 			fmt.Printf("\nWarning: embedding generation failed: %v\n", err)
 		}
@@ -168,8 +170,9 @@ func runIndex(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Files skipped:  %d (unchanged)\n", result.FilesSkipped)
 	fmt.Printf("  Files deleted:  %d (removed)\n", result.FilesDeleted)
 	fmt.Printf("  Chunks created: %d\n", result.ChunksCreated)
-	if embeddingsGenerated > 0 {
-		fmt.Printf("  Embeddings:     %d\n", embeddingsGenerated)
+	if embedResult != nil {
+		fmt.Printf("  Embeddings:     %d new, %d reused, %d stale removed (%d total chunks)\n",
+			embedResult.Embedded, embedResult.Reused, embedResult.Deleted, embedResult.TotalChunks)
 	}
 
 	if len(result.Errors) > 0 {
@@ -183,114 +186,73 @@ func runIndex(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func generateEmbeddings(st *store.BoltStore, cfg *config.Config) (int, error) {
-
-	var embedder port.Embedder
-	var err error
-
-	switch cfg.Embedding.Provider {
-	case "openai":
-		embedder, err = embedding.NewOpenAIEmbedder(cfg.Embedding.APIKeyEnv, cfg.Embedding.Model)
-	case "deepseek":
-		embedder, err = embedding.NewDeepSeekEmbedder(cfg.Embedding.APIKeyEnv, cfg.Embedding.Model)
-	case "jina":
-		embedder, err = embedding.NewJinaEmbedder(cfg.Embedding.APIKeyEnv, cfg.Embedding.Model)
-	case "ollama":
-		embedder, err = embedding.NewOllamaEmbedder(cfg.Embedding.Model, cfg.Embedding.BaseURL)
-	case "mock":
-		embedder = embedding.NewMockEmbedder(cfg.Embedding.Dimension)
-	default:
-		return 0, fmt.Errorf("unsupported embedding provider: %s", cfg.Embedding.Provider)
-	}
+func generateEmbeddings(st *store.BoltStore, cfg *config.Config) (*usecase.EmbedResult, error) {
+	embedder, err := buildEmbedder(cfg)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create embedder: %w", err)
+		return nil, err
 	}
 
-	vectorStore, err := store.NewBoltVectorStore(st.DB(), embedder.Dimension())
+	vectorStore, err := openVectorStore(st, embedder)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create vector store: %w", err)
+		return nil, err
 	}
 
-	docs, err := st.ListDocs()
+	meta, err := vectorStore.Meta()
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-
-	var allChunks []struct {
-		id   string
-		text string
-	}
-
-	for _, doc := range docs {
-		chunks, err := st.GetChunksByDoc(doc.ID)
+	want := currentVectorMeta(embedder)
+	if meta != nil && (meta.Model != want.Model || meta.Dimension != want.Dimension) {
+		fmt.Printf("Embedding model changed (%s/%d -> %s/%d), discarding old vectors\n",
+			meta.Model, meta.Dimension, want.Model, want.Dimension)
+		ids, err := vectorStore.IDs()
 		if err != nil {
-			continue
+			return nil, err
 		}
-		for _, chunk := range chunks {
-			allChunks = append(allChunks, struct {
-				id   string
-				text string
-			}{chunk.ID, chunk.Text})
+		if err := vectorStore.Delete(ids); err != nil {
+			return nil, err
 		}
 	}
 
-	if len(allChunks) == 0 {
-		return 0, nil
+	embedUC, err := usecase.NewEmbedBuilder().
+		Store(st).
+		Embedder(embedder).
+		VectorStore(vectorStore).
+		BatchSize(cfg.Embedding.BatchSize).
+		Force(indexForceEmbed).
+		Build()
+	if err != nil {
+		return nil, err
 	}
 
-	fmt.Printf("\nGenerating embeddings for %d chunks...\n", len(allChunks))
-
-	batchSize := cfg.Embedding.BatchSize
-	if batchSize <= 0 {
-		batchSize = 100
+	var bar *progressbar.ProgressBar
+	progress := func(embedded, total int) {
+		if bar == nil {
+			fmt.Printf("\nGenerating embeddings for %d chunks (%s)...\n", total, embedder.ModelName())
+			bar = progressbar.NewOptions(total,
+				progressbar.OptionEnableColorCodes(true),
+				progressbar.OptionShowBytes(false),
+				progressbar.OptionSetWidth(40),
+				progressbar.OptionShowCount(),
+				progressbar.OptionSetDescription("[cyan]Embedding[reset]"),
+				progressbar.OptionOnCompletion(func() {
+					fmt.Println()
+				}),
+			)
+		}
+		bar.Set(embedded)
 	}
 
-	bar := progressbar.NewOptions(len(allChunks),
-		progressbar.OptionEnableColorCodes(true),
-		progressbar.OptionShowBytes(false),
-		progressbar.OptionSetWidth(40),
-		progressbar.OptionShowCount(),
-		progressbar.OptionSetDescription("[cyan]Embedding[reset]"),
-		progressbar.OptionOnCompletion(func() {
-			fmt.Println()
-		}),
-	)
-
-	generated := 0
-	for i := 0; i < len(allChunks); i += batchSize {
-		end := i + batchSize
-		if end > len(allChunks) {
-			end = len(allChunks)
-		}
-		batch := allChunks[i:end]
-
-		texts := make([]string, len(batch))
-		for j, c := range batch {
-			texts[j] = c.text
-		}
-
-		embeddings, err := embedder.Embed(texts)
-		if err != nil {
-			return generated, fmt.Errorf("embedding batch failed: %w", err)
-		}
-
-		items := make([]port.VectorItem, len(batch))
-		for j, c := range batch {
-			items[j] = port.VectorItem{
-				ID:     c.id,
-				Vector: embeddings[j],
-			}
-		}
-
-		if err := vectorStore.Upsert(items); err != nil {
-			return generated, fmt.Errorf("failed to store vectors: %w", err)
-		}
-
-		generated += len(batch)
-		bar.Set(generated)
+	result, err := embedUC.Sync(progress)
+	if err != nil {
+		return result, err
 	}
 
-	return generated, nil
+	if err := vectorStore.SetMeta(want); err != nil {
+		return result, fmt.Errorf("failed to record embedding metadata: %w", err)
+	}
+
+	return result, nil
 }
 
 func formatDuration(d time.Duration) string {

@@ -12,7 +12,9 @@ import (
 )
 
 var (
-	bucketVectors = []byte("vectors")
+	bucketVectors     = []byte("vectors")
+	bucketVectorMeta  = []byte("vector_meta")
+	keyVectorMetaInfo = []byte("info")
 )
 
 type BoltVectorStore struct {
@@ -25,6 +27,7 @@ type BoltVectorStore struct {
 
 type vectorEntry struct {
 	vector   []float32
+	norm     float64
 	metadata map[string]string
 }
 
@@ -33,10 +36,21 @@ type storedVector struct {
 	Metadata map[string]string `json:"m,omitempty"`
 }
 
+type VectorMeta struct {
+	Model     string `json:"model"`
+	Dimension int    `json:"dimension"`
+}
+
 func NewBoltVectorStore(db *bbolt.DB, dimension int) (*BoltVectorStore, error) {
+	if dimension <= 0 {
+		return nil, fmt.Errorf("vector store dimension must be positive, got %d", dimension)
+	}
 
 	err := db.Update(func(tx *bbolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(bucketVectors)
+		if _, err := tx.CreateBucketIfNotExists(bucketVectors); err != nil {
+			return err
+		}
+		_, err := tx.CreateBucketIfNotExists(bucketVectorMeta)
 		return err
 	})
 	if err != nil {
@@ -68,8 +82,12 @@ func (s *BoltVectorStore) loadVectors() error {
 			if err := json.Unmarshal(v, &stored); err != nil {
 				return nil
 			}
+			if len(stored.Vector) != s.dimension {
+				return nil
+			}
 			s.vectors[string(k)] = vectorEntry{
 				vector:   stored.Vector,
+				norm:     l2Norm(stored.Vector),
 				metadata: stored.Metadata,
 			}
 			return nil
@@ -77,21 +95,62 @@ func (s *BoltVectorStore) loadVectors() error {
 	})
 }
 
+func (s *BoltVectorStore) Meta() (*VectorMeta, error) {
+	var meta *VectorMeta
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketVectorMeta)
+		if b == nil {
+			return nil
+		}
+		data := b.Get(keyVectorMetaInfo)
+		if data == nil {
+			return nil
+		}
+		var m VectorMeta
+		if err := json.Unmarshal(data, &m); err != nil {
+			return err
+		}
+		meta = &m
+		return nil
+	})
+	return meta, err
+}
+
+func (s *BoltVectorStore) SetMeta(meta VectorMeta) error {
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists(bucketVectorMeta)
+		if err != nil {
+			return err
+		}
+		return b.Put(keyVectorMetaInfo, data)
+	})
+}
+
 func (s *BoltVectorStore) Upsert(items []port.VectorItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+
+	for _, item := range items {
+		if len(item.Vector) != s.dimension {
+			return fmt.Errorf("vector dimension mismatch for %s: expected %d, got %d", item.ID, s.dimension, len(item.Vector))
+		}
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.db.Update(func(tx *bbolt.Tx) error {
+	err := s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketVectors)
 		if b == nil {
 			return fmt.Errorf("vectors bucket not found")
 		}
 
 		for _, item := range items {
-			if len(item.Vector) != s.dimension {
-				return fmt.Errorf("vector dimension mismatch: expected %d, got %d", s.dimension, len(item.Vector))
-			}
-
 			stored := storedVector{
 				Vector:   item.Vector,
 				Metadata: item.Metadata,
@@ -104,15 +163,23 @@ func (s *BoltVectorStore) Upsert(items []port.VectorItem) error {
 			if err := b.Put([]byte(item.ID), data); err != nil {
 				return err
 			}
-
-			s.vectors[item.ID] = vectorEntry{
-				vector:   item.Vector,
-				metadata: item.Metadata,
-			}
 		}
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	for _, item := range items {
+		s.vectors[item.ID] = vectorEntry{
+			vector:   item.Vector,
+			norm:     l2Norm(item.Vector),
+			metadata: item.Metadata,
+		}
+	}
+
+	return nil
 }
 
 func (s *BoltVectorStore) Search(query []float32, k int) ([]port.VectorResult, error) {
@@ -120,47 +187,34 @@ func (s *BoltVectorStore) Search(query []float32, k int) ([]port.VectorResult, e
 	defer s.mu.RUnlock()
 
 	if len(query) != s.dimension {
-		return nil, fmt.Errorf("query dimension mismatch: expected %d, got %d", s.dimension, len(query))
+		return nil, fmt.Errorf("query dimension mismatch: expected %d, got %d (index was built with a different embedding model - re-run 'rag index')", s.dimension, len(query))
 	}
 
-	if len(s.vectors) == 0 {
+	if len(s.vectors) == 0 || k <= 0 {
 		return nil, nil
 	}
 
-	type scored struct {
-		id       string
-		score    float64
-		metadata map[string]string
+	queryNorm := l2Norm(query)
+	if queryNorm == 0 {
+		return nil, nil
 	}
 
-	scores := make([]scored, 0, len(s.vectors))
+	results := make([]port.VectorResult, 0, len(s.vectors))
 	for id, entry := range s.vectors {
-		sim := cosineSimilarity(query, entry.vector)
-		scores = append(scores, scored{
-			id:       id,
-			score:    sim,
-			metadata: entry.metadata,
+		results = append(results, port.VectorResult{
+			ID:       id,
+			Score:    cosine(query, queryNorm, entry),
+			Metadata: entry.metadata,
 		})
 	}
 
-	sort.Slice(scores, func(i, j int) bool {
-		return scores[i].score > scores[j].score
-	})
+	sortResults(results)
 
-	if k > len(scores) {
-		k = len(scores)
+	if k > len(results) {
+		k = len(results)
 	}
 
-	results := make([]port.VectorResult, k)
-	for i := 0; i < k; i++ {
-		results[i] = port.VectorResult{
-			ID:       scores[i].id,
-			Score:    scores[i].score,
-			Metadata: scores[i].metadata,
-		}
-	}
-
-	return results, nil
+	return results[:k], nil
 }
 
 func (s *BoltVectorStore) SearchSubset(query []float32, ids []string) ([]port.VectorResult, error) {
@@ -168,7 +222,12 @@ func (s *BoltVectorStore) SearchSubset(query []float32, ids []string) ([]port.Ve
 	defer s.mu.RUnlock()
 
 	if len(query) != s.dimension {
-		return nil, fmt.Errorf("query dimension mismatch: expected %d, got %d", s.dimension, len(query))
+		return nil, fmt.Errorf("query dimension mismatch: expected %d, got %d (index was built with a different embedding model - re-run 'rag index')", s.dimension, len(query))
+	}
+
+	queryNorm := l2Norm(query)
+	if queryNorm == 0 {
+		return nil, nil
 	}
 
 	results := make([]port.VectorResult, 0, len(ids))
@@ -177,26 +236,27 @@ func (s *BoltVectorStore) SearchSubset(query []float32, ids []string) ([]port.Ve
 		if !exists {
 			continue
 		}
-		sim := cosineSimilarity(query, entry.vector)
 		results = append(results, port.VectorResult{
 			ID:       id,
-			Score:    sim,
+			Score:    cosine(query, queryNorm, entry),
 			Metadata: entry.metadata,
 		})
 	}
 
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Score > results[j].Score
-	})
+	sortResults(results)
 
 	return results, nil
 }
 
 func (s *BoltVectorStore) Delete(ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.db.Update(func(tx *bbolt.Tx) error {
+	err := s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketVectors)
 		if b == nil {
 			return nil
@@ -206,11 +266,30 @@ func (s *BoltVectorStore) Delete(ids []string) error {
 			if err := b.Delete([]byte(id)); err != nil {
 				return err
 			}
-			delete(s.vectors, id)
 		}
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	for _, id := range ids {
+		delete(s.vectors, id)
+	}
+
+	return nil
+}
+
+func (s *BoltVectorStore) IDs() ([]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ids := make([]string, 0, len(s.vectors))
+	for id := range s.vectors {
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 func (s *BoltVectorStore) Count() (int, error) {
@@ -219,21 +298,32 @@ func (s *BoltVectorStore) Count() (int, error) {
 	return len(s.vectors), nil
 }
 
-func cosineSimilarity(a, b []float32) float64 {
-	if len(a) != len(b) {
+func sortResults(results []port.VectorResult) {
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Score == results[j].Score {
+			return results[i].ID < results[j].ID
+		}
+		return results[i].Score > results[j].Score
+	})
+}
+
+func cosine(query []float32, queryNorm float64, entry vectorEntry) float64 {
+	if entry.norm == 0 || len(entry.vector) != len(query) {
 		return 0
 	}
 
-	var dotProduct, normA, normB float64
-	for i := range a {
-		dotProduct += float64(a[i]) * float64(b[i])
-		normA += float64(a[i]) * float64(a[i])
-		normB += float64(b[i]) * float64(b[i])
+	var dot float64
+	for i := range query {
+		dot += float64(query[i]) * float64(entry.vector[i])
 	}
 
-	if normA == 0 || normB == 0 {
-		return 0
-	}
+	return dot / (queryNorm * entry.norm)
+}
 
-	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
+func l2Norm(v []float32) float64 {
+	var sum float64
+	for _, x := range v {
+		sum += float64(x) * float64(x)
+	}
+	return math.Sqrt(sum)
 }

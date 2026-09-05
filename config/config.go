@@ -62,8 +62,8 @@ type LoggingConfig struct {
 func DefaultConfig() *Config {
 	return &Config{
 		Index: IndexConfig{
-			Includes:     []string{"***.py", "**/*.js", "**/*.ts", "**/*.java", "**/*.c", "**/*.cpp", "**/*.h", "**/*.rs", "**/*.md", "**/*.txt", "**/*_test.go", "**/test_*.py", "**/*_test.py", "**/*.test.js", "**/*.test.ts", "**/*.spec.js", "**/*.spec.ts", "**/*Test.java"},
-			Excludes:     []string{"**/node_modulesvendor/**", "**/.git/**", "**/dist/**", "**/build/**", "**/__pycache__/**", "**/*.min.js"},
+			Includes:     []string{"**/*.go", "**/*.py", "**/*.js", "**/*.ts", "**/*.java", "**/*.c", "**/*.cpp", "**/*.h", "**/*.rs", "**/*.md", "**/*.txt", "**/*_test.go", "**/test_*.py", "**/*_test.py", "**/*.test.js", "**/*.test.ts", "**/*.spec.js", "**/*.spec.ts", "**/*Test.java"},
+			Excludes:     []string{"**/node_modules/**", "**/vendor/**", "**/.git/**", "**/dist/**", "**/build/**", "**/__pycache__/**", "**/*.min.js"},
 			Language:     "auto",
 			Stemming:     true,
 			ChunkTokens:  512,

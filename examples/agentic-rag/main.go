@@ -959,21 +959,14 @@ func extractJSON(s string) string {
 }
 
 func setupHybridRetrieval(st *store.BoltStore, cfg *config.Config) (port.Embedder, port.VectorStore, error) {
-	var embedder port.Embedder
-	var err error
-
-	switch cfg.Embedding.Provider {
-	case "openai":
-		embedder, err = embedding.NewOpenAIEmbedder(cfg.Embedding.APIKeyEnv, cfg.Embedding.Model)
-	case "jina":
-		embedder, err = embedding.NewJinaEmbedder(cfg.Embedding.APIKeyEnv, cfg.Embedding.Model)
-	case "ollama":
-		embedder, err = embedding.NewOllamaEmbedder(cfg.Embedding.Model, cfg.Embedding.BaseURL)
-	case "mock":
-		embedder = embedding.NewMockEmbedder(cfg.Embedding.Dimension)
-	default:
-		return nil, nil, fmt.Errorf("unsupported embedding provider: %s", cfg.Embedding.Provider)
-	}
+	embedder, err := embedding.NewBuilder().
+		Provider(cfg.Embedding.Provider).
+		Model(cfg.Embedding.Model).
+		APIKeyEnv(cfg.Embedding.APIKeyEnv).
+		BaseURL(cfg.Embedding.BaseURL).
+		Dimension(cfg.Embedding.Dimension).
+		BatchSize(cfg.Embedding.BatchSize).
+		Build()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1061,10 +1054,14 @@ func main() {
 				fmt.Printf("Warning: Hybrid search unavailable: %v (using BM25 only)\n", err)
 			}
 		} else {
-			searchRetriever = retriever.NewHybridRetriever(
-				bm25, vectorStore, embedder, st,
-				cfg.Retrieve.RRFK, cfg.Retrieve.BM25Weight,
-			)
+			searchRetriever = retriever.NewHybridBuilder().
+				BM25(bm25).
+				VectorStore(vectorStore).
+				Embedder(embedder).
+				ChunkStore(st).
+				RRFK(cfg.Retrieve.RRFK).
+				BM25Weight(cfg.Retrieve.BM25Weight).
+				Build()
 			if *verbose {
 				fmt.Printf("Hybrid search enabled (BM25 + vector)\n")
 			}

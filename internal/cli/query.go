@@ -11,11 +11,9 @@ import (
 	"golang.org/x/term"
 	"rag/config"
 	"rag/internal/adapter/analyzer"
-	"rag/internal/adapter/embedding"
 	"rag/internal/adapter/retriever"
 	"rag/internal/adapter/store"
 	"rag/internal/domain"
-	"rag/internal/port"
 	"rag/internal/usecase"
 )
 
@@ -26,6 +24,8 @@ var (
 	queryNoMMR       bool
 	queryContext     int
 	querySemantic    bool
+	queryLexical     bool
+	queryExplain     bool
 	queryNoAutoIndex bool
 )
 
@@ -53,6 +53,8 @@ func init() {
 	queryCmd.Flags().BoolVar(&queryNoMMR, "no-mmr", false, "disable MMR reranking")
 	queryCmd.Flags().IntVarP(&queryContext, "context", "c", 0, "expand results by N lines before/after")
 	queryCmd.Flags().BoolVar(&querySemantic, "semantic", false, "use only embedding/vector search (no BM25)")
+	queryCmd.Flags().BoolVar(&queryLexical, "lexical", false, "use only BM25 keyword search (no embeddings)")
+	queryCmd.Flags().BoolVar(&queryExplain, "explain", false, "print which retrieval arms ran and how many candidates each produced")
 	queryCmd.Flags().BoolVar(&queryNoAutoIndex, "no-auto-index", false, "error instead of auto-indexing when index is missing")
 	queryCmd.MarkFlagRequired("query")
 }
@@ -106,30 +108,21 @@ func runQuery(cmd *cobra.Command, args []string) error {
 
 	tokenizer := analyzer.NewTokenizer(cfg.Index.Stemming)
 
-	bm25 := retriever.NewBM25Retriever(st, tokenizer, cfg.Index.K1, cfg.Index.B, cfg.Retrieve.PathBoostWeight)
 	mmr := retriever.NewMMRReranker(cfg.Retrieve.MMRLambda, cfg.Retrieve.DedupJaccard)
 
-	var searchRetriever port.Retriever = bm25
-
+	mode := ModeAuto
 	if querySemantic {
-		if !cfg.Embedding.Enabled {
-			return fmt.Errorf("semantic search requires embeddings. Enable in rag.yaml:\n  embedding:\n    enabled: true\n    provider: ollama\n    model: nomic-embed-text")
-		}
-		embedder, vectorStore, err := setupHybridRetrieval(st, cfg)
-		if err != nil {
-			return fmt.Errorf("semantic search unavailable: %v", err)
-		}
-		searchRetriever = retriever.NewSemanticRetriever(vectorStore, embedder, st)
-	} else if cfg.Retrieve.HybridEnabled && cfg.Embedding.Enabled {
-		embedder, vectorStore, err := setupHybridRetrieval(st, cfg)
-		if err != nil {
-			fmt.Printf("Warning: hybrid retrieval unavailable: %v\n", err)
-		} else {
-			searchRetriever = retriever.NewHybridRetriever(
-				bm25, vectorStore, embedder, st,
-				cfg.Retrieve.RRFK, cfg.Retrieve.BM25Weight,
-			)
-		}
+		mode = ModeSemantic
+	} else if queryLexical {
+		mode = ModeLexical
+	}
+
+	searchRetriever, plan, err := buildRetriever(st, cfg, tokenizer, mode)
+	if err != nil {
+		return err
+	}
+	if queryExplain || plan.Warning != "" {
+		fmt.Fprintln(os.Stderr, plan.Describe())
 	}
 
 	retrieveUC := usecase.NewRetrieveUseCase(searchRetriever, mmr, cfg.Retrieve.MinScoreThreshold)
@@ -147,6 +140,10 @@ func runQuery(cmd *cobra.Command, args []string) error {
 	}
 	if err != nil {
 		return fmt.Errorf("search failed: %w", err)
+	}
+
+	if queryExplain {
+		fmt.Fprintln(os.Stderr, plan.DescribeStats())
 	}
 
 	var results []usecase.ScoredChunkResult
@@ -249,44 +246,6 @@ func joinLines(lines []string) string {
 		result += line
 	}
 	return result
-}
-
-func setupHybridRetrieval(st *store.BoltStore, cfg *config.Config) (port.Embedder, port.VectorStore, error) {
-	var embedder port.Embedder
-	var err error
-
-	switch cfg.Embedding.Provider {
-	case "openai":
-		embedder, err = embedding.NewOpenAIEmbedder(cfg.Embedding.APIKeyEnv, cfg.Embedding.Model)
-	case "deepseek":
-		embedder, err = embedding.NewDeepSeekEmbedder(cfg.Embedding.APIKeyEnv, cfg.Embedding.Model)
-	case "jina":
-		embedder, err = embedding.NewJinaEmbedder(cfg.Embedding.APIKeyEnv, cfg.Embedding.Model)
-	case "ollama":
-		embedder, err = embedding.NewOllamaEmbedder(cfg.Embedding.Model, cfg.Embedding.BaseURL)
-	case "mock":
-		embedder = embedding.NewMockEmbedder(cfg.Embedding.Dimension)
-	default:
-		return nil, nil, fmt.Errorf("unsupported embedding provider: %s", cfg.Embedding.Provider)
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-
-	vectorStore, err := store.NewBoltVectorStore(st.DB(), embedder.Dimension())
-	if err != nil {
-		return nil, nil, err
-	}
-
-	count, err := vectorStore.Count()
-	if err != nil {
-		return nil, nil, err
-	}
-	if count == 0 {
-		return nil, nil, fmt.Errorf("no embeddings found - run 'rag index' first with embedding.enabled=true")
-	}
-
-	return embedder, vectorStore, nil
 }
 
 func askYesNo(prompt string) bool {

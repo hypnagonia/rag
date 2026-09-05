@@ -102,6 +102,7 @@ rag index /path/to/project       # Index specific directory
 **Flags:**
 - `-d, --dir` - Root directory (default: current directory)
 - `--config` - Path to config file (default: `./rag.yaml`)
+- `--force-embed` - Re-embed every chunk instead of reusing existing vectors
 
 ### `rag query -q "<question>"`
 
@@ -119,6 +120,8 @@ rag query -q "how to handle errors" --semantic
 - `--json` - Output as JSON
 - `--no-mmr` - Disable MMR reranking
 - `--semantic` - Use embedding-only search (no BM25)
+- `--lexical` - Use BM25-only search (no embeddings)
+- `--explain` - Print which retrieval arms ran and how many candidates each produced
 - `-c, --context` - Expand results by N lines before/after
 
 ### `rag pack -q "<question>"`
@@ -128,6 +131,7 @@ Pack relevant chunks into compressed context that fits a token budget.
 ```bash
 rag pack -q "authentication flow" -b 2000
 rag pack -q "API endpoints" -o context.json
+rag pack -q "session handling" --lexical
 ```
 
 **Flags:**
@@ -241,7 +245,35 @@ Re-index to generate embeddings:
 rag index /path/to/content
 ```
 
-Hybrid search combines BM25 (keyword matching) with vector similarity (semantic matching) using Reciprocal Rank Fusion (RRF).
+Hybrid search runs both arms independently and fuses their rankings with Reciprocal Rank Fusion:
+
+```
+score(c) = bm25_weight / (rrf_k + rank_bm25) + (1 - bm25_weight) / (rrf_k + rank_vector)
+```
+
+Because the arms run independently, a chunk that only the vector arm finds still reaches
+the results — BM25 does not gate the candidate pool. Use `--explain` to see how many
+candidates each arm produced:
+
+```bash
+rag query -q "how are sessions validated" --explain
+# retrieval: hybrid (bm25 + vector, RRF) (model=nomic-embed-text, vectors=1842)
+# candidates: bm25=32 vector=80 fused=97
+```
+
+If embeddings are unavailable (provider down, index not embedded, model changed), query
+and pack print a warning and fall back to BM25 rather than failing silently.
+
+`rag pack` uses the same retrieval path as `rag query`, so hybrid search applies there too.
+
+> **Note:** RRF scores are much smaller than BM25 scores (typically `0.005`-`0.03`). If you
+> set `retrieve.min_score_threshold`, tune it for whichever mode you actually run — a
+> threshold picked for BM25 scores will filter out every hybrid result.
+
+**Embeddings are incremental.** Re-running `rag index` only embeds chunks that do not
+already have a vector, and drops vectors for chunks that no longer exist. Use
+`rag index --force-embed` to re-embed everything. Changing `embedding.model` triggers a
+rebuild, discarding vectors from the old model.
 
 ### Semantic-Only Search
 

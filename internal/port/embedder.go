@@ -17,6 +17,8 @@ type VectorStore interface {
 
 	Delete(ids []string) error
 
+	IDs() ([]string, error)
+
 	Count() (int, error)
 }
 
