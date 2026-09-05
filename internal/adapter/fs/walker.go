@@ -31,6 +31,10 @@ func (w *Walker) Walk(root string) ([]port.FileInfo, error) {
 		return nil, err
 	}
 
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolved
+	}
+
 	err = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
