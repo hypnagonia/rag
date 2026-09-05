@@ -96,7 +96,6 @@ var providers = map[string]struct {
 }{
 	"deepseek": {"https://api.deepseek.com/v1", "DEEPSEEK_API_KEY"},
 	"openai":   {"https://api.openai.com/v1", "OPENAI_API_KEY"},
-	"local":    {"http://localhost:11434/v1", ""},
 }
 
 func NewLLMClient(provider, model, baseURL, apiKey string) (*LLMClient, error) {

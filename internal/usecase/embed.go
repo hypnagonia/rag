@@ -18,6 +18,7 @@ type EmbedUseCase struct {
 	vectorStore port.VectorStore
 	batchSize   int
 	force       bool
+	includePath bool
 }
 
 type EmbedBuilder struct {
@@ -26,10 +27,11 @@ type EmbedBuilder struct {
 	vectorStore port.VectorStore
 	batchSize   int
 	force       bool
+	includePath bool
 }
 
 func NewEmbedBuilder() *EmbedBuilder {
-	return &EmbedBuilder{batchSize: defaultEmbedBatchSize}
+	return &EmbedBuilder{batchSize: defaultEmbedBatchSize, includePath: true}
 }
 
 func (b *EmbedBuilder) Store(s port.IndexStore) *EmbedBuilder {
@@ -59,6 +61,11 @@ func (b *EmbedBuilder) Force(force bool) *EmbedBuilder {
 	return b
 }
 
+func (b *EmbedBuilder) IncludePath(include bool) *EmbedBuilder {
+	b.includePath = include
+	return b
+}
+
 func (b *EmbedBuilder) Build() (*EmbedUseCase, error) {
 	if b.store == nil {
 		return nil, fmt.Errorf("embed use case requires an index store")
@@ -76,6 +83,7 @@ func (b *EmbedBuilder) Build() (*EmbedUseCase, error) {
 		vectorStore: b.vectorStore,
 		batchSize:   b.batchSize,
 		force:       b.force,
+		includePath: b.includePath,
 	}, nil
 }
 
@@ -166,7 +174,7 @@ func (u *EmbedUseCase) collectChunks() ([]pendingChunk, map[string]struct{}, err
 			currentIDs[chunk.ID] = struct{}{}
 			pending = append(pending, pendingChunk{
 				id:   chunk.ID,
-				text: embeddingText(doc.Path, chunk.StartLine, chunk.EndLine, chunk.Text),
+				text: u.embeddingText(doc.Path, chunk.StartLine, chunk.EndLine, chunk.Text),
 			})
 		}
 	}
@@ -213,10 +221,15 @@ func (u *EmbedUseCase) embedAll(todo []pendingChunk, result *EmbedResult, progre
 	return nil
 }
 
-func embeddingText(path string, startLine, endLine int, text string) string {
+func (u *EmbedUseCase) embeddingText(path string, startLine, endLine int, text string) string {
+	body := truncateRunes(text, maxEmbedTextRunes)
+	if !u.includePath {
+		return body
+	}
+
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("%s:%d-%d\n", path, startLine, endLine))
-	b.WriteString(truncateRunes(text, maxEmbedTextRunes))
+	b.WriteString(body)
 	return b.String()
 }
 

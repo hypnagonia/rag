@@ -6,6 +6,7 @@ import (
 
 	"rag/config"
 	"rag/internal/adapter/embedding"
+	"rag/internal/adapter/llm"
 	"rag/internal/adapter/retriever"
 	"rag/internal/adapter/store"
 	"rag/internal/port"
@@ -39,14 +40,15 @@ func openVectorStore(st *store.BoltStore, embedder port.Embedder) (*store.BoltVe
 	return vectorStore, nil
 }
 
-func currentVectorMeta(embedder port.Embedder) store.VectorMeta {
+func currentVectorMeta(cfg *config.Config, embedder port.Embedder) store.VectorMeta {
 	return store.VectorMeta{
-		Model:     embedder.ModelName(),
-		Dimension: embedder.Dimension(),
+		Model:       embedder.ModelName(),
+		Dimension:   embedder.Dimension(),
+		IncludePath: cfg.Embedding.IncludePath,
 	}
 }
 
-func checkVectorMeta(vectorStore *store.BoltVectorStore, embedder port.Embedder) error {
+func checkVectorMeta(cfg *config.Config, vectorStore *store.BoltVectorStore, embedder port.Embedder) error {
 	meta, err := vectorStore.Meta()
 	if err != nil {
 		return err
@@ -55,10 +57,14 @@ func checkVectorMeta(vectorStore *store.BoltVectorStore, embedder port.Embedder)
 		return nil
 	}
 
-	want := currentVectorMeta(embedder)
+	want := currentVectorMeta(cfg, embedder)
 	if meta.Model != want.Model || meta.Dimension != want.Dimension {
 		return fmt.Errorf("index was embedded with %s (%d dims) but config asks for %s (%d dims) - re-run 'rag index'",
 			meta.Model, meta.Dimension, want.Model, want.Dimension)
+	}
+	if meta.IncludePath != want.IncludePath {
+		return fmt.Errorf("index was embedded with include_path=%v but config asks for %v - re-run 'rag index'",
+			meta.IncludePath, want.IncludePath)
 	}
 
 	return nil
@@ -79,7 +85,7 @@ func setupVectorRetrieval(st *store.BoltStore, cfg *config.Config) (port.Embedde
 		return nil, nil, err
 	}
 
-	if err := checkVectorMeta(vectorStore, embedder); err != nil {
+	if err := checkVectorMeta(cfg, vectorStore, embedder); err != nil {
 		return nil, nil, err
 	}
 
@@ -109,6 +115,7 @@ type RetrievalPlan struct {
 	Warning string
 
 	hybrid *retriever.HybridRetriever
+	hyde   *retriever.HyDERetriever
 }
 
 func (p RetrievalPlan) Describe() string {
@@ -124,12 +131,27 @@ func (p RetrievalPlan) Describe() string {
 }
 
 func (p RetrievalPlan) DescribeStats() string {
+	var b strings.Builder
+
+	if p.hyde != nil {
+		s := p.hyde.Stats()
+		source := "llm"
+		if s.CacheHit {
+			source = "cache"
+		}
+		b.WriteString(fmt.Sprintf("hyde: %s, llm_calls=%d\n", source, s.LLMCalls))
+		if s.Err != nil {
+			b.WriteString(fmt.Sprintf("hyde failed (falling back to the plain query): %v\n", s.Err))
+		} else if s.Hypothetical != "" {
+			b.WriteString(fmt.Sprintf("hyde probe: %s\n", truncateOneLine(s.Hypothetical, 160)))
+		}
+	}
+
 	if p.hybrid == nil {
-		return fmt.Sprintf("candidates: single-arm (%s)", p.Mode)
+		return b.String() + fmt.Sprintf("candidates: single-arm (%s)", p.Mode)
 	}
 
 	stats := p.hybrid.Stats()
-	var b strings.Builder
 	b.WriteString(fmt.Sprintf("candidates: bm25=%d vector=%d fused=%d", stats.BM25Candidates, stats.VectorCandidates, stats.Fused))
 	if stats.BM25Error != nil {
 		b.WriteString(fmt.Sprintf("\nbm25 arm failed: %v", stats.BM25Error))
@@ -138,6 +160,41 @@ func (p RetrievalPlan) DescribeStats() string {
 		b.WriteString(fmt.Sprintf("\nvector arm failed: %v", stats.VectorError))
 	}
 	return b.String()
+}
+
+func truncateOneLine(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
+}
+
+func wrapWithHyDE(st *store.BoltStore, cfg *config.Config, inner port.Retriever, plan RetrievalPlan) (port.Retriever, RetrievalPlan, error) {
+	client, err := llm.NewBuilder().
+		Provider(cfg.LLM.Provider).
+		Model(cfg.LLM.Model).
+		APIKeyEnv(cfg.LLM.APIKeyEnv).
+		BaseURL(cfg.LLM.BaseURL).
+		MaxTokens(cfg.LLM.MaxTokens).
+		Build()
+	if err != nil {
+		return nil, plan, fmt.Errorf("--hyde needs an LLM: %w", err)
+	}
+
+	cache, err := store.NewHyDECache(st.DB())
+	if err != nil {
+		return nil, plan, err
+	}
+
+	hyde, err := retriever.NewHyDEBuilder().Inner(inner).LLM(client).Cache(cache).Build()
+	if err != nil {
+		return nil, plan, err
+	}
+
+	plan.Mode = plan.Mode + " + HyDE(" + client.ModelName() + ")"
+	plan.hyde = hyde
+	return hyde, plan, nil
 }
 
 func buildRetriever(st *store.BoltStore, cfg *config.Config, tokenizer port.Tokenizer, mode RetrievalMode) (port.Retriever, RetrievalPlan, error) {

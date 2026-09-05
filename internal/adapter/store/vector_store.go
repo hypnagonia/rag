@@ -37,8 +37,9 @@ type storedVector struct {
 }
 
 type VectorMeta struct {
-	Model     string `json:"model"`
-	Dimension int    `json:"dimension"`
+	Model       string `json:"model"`
+	Dimension   int    `json:"dimension"`
+	IncludePath bool   `json:"include_path"`
 }
 
 func NewBoltVectorStore(db *bbolt.DB, dimension int) (*BoltVectorStore, error) {

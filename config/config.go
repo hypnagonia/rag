@@ -12,6 +12,7 @@ type Config struct {
 	Retrieve  RetrieveConfig  `yaml:"retrieve"`
 	Pack      PackConfig      `yaml:"pack"`
 	Embedding EmbeddingConfig `yaml:"embedding"`
+	LLM       LLMConfig       `yaml:"llm"`
 	Logging   LoggingConfig   `yaml:"logging"`
 }
 
@@ -23,6 +24,16 @@ type EmbeddingConfig struct {
 	BaseURL   string `yaml:"base_url"`
 	Dimension int    `yaml:"dimension"`
 	BatchSize int    `yaml:"batch_size"`
+
+	IncludePath bool `yaml:"include_path"`
+}
+
+type LLMConfig struct {
+	Provider  string `yaml:"provider"`
+	Model     string `yaml:"model"`
+	APIKeyEnv string `yaml:"api_key_env"`
+	BaseURL   string `yaml:"base_url"`
+	MaxTokens int    `yaml:"max_tokens"`
 }
 
 type IndexConfig struct {
@@ -82,12 +93,19 @@ func DefaultConfig() *Config {
 			BM25Weight:      0.5,
 		},
 		Embedding: EmbeddingConfig{
-			Enabled:   false,
-			Provider:  "openai",
-			Model:     "text-embedding-3-small",
-			APIKeyEnv: "OPENAI_API_KEY",
-			Dimension: 1536,
-			BatchSize: 100,
+			Enabled:     false,
+			Provider:    "openai",
+			Model:       "text-embedding-3-small",
+			APIKeyEnv:   "OPENAI_API_KEY",
+			Dimension:   1536,
+			BatchSize:   100,
+			IncludePath: true,
+		},
+		LLM: LLMConfig{
+			Provider:  "deepseek",
+			Model:     "deepseek-chat",
+			APIKeyEnv: "DEEPSEEK_API_KEY",
+			MaxTokens: 400,
 		},
 		Pack: PackConfig{
 			TokenBudget:  4000,

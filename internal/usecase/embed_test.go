@@ -325,3 +325,50 @@ func TestEmbedSyncSkipsBlankChunks(t *testing.T) {
 		t.Error("an empty chunk should not get a vector")
 	}
 }
+
+func TestEmbedSyncIncludePathFalseOmitsPathFromEmbeddedText(t *testing.T) {
+	st := seedStore(t, map[string][]domain.Chunk{
+		"doc1": {{ID: "c1", Text: "func Handler()", StartLine: 10, EndLine: 20}},
+	})
+	emb := &fakeEmbedder{dimension: 4}
+
+	uc, err := NewEmbedBuilder().
+		Store(st).
+		Embedder(emb).
+		VectorStore(newFakeVectorStore()).
+		IncludePath(false).
+		Build()
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+	if _, err := uc.Sync(nil); err != nil {
+		t.Fatalf("sync failed: %v", err)
+	}
+
+	text := emb.calls[0][0]
+	if strings.Contains(text, "/src/doc1.go") {
+		t.Errorf("include_path=false must not prepend the file path, got %q", text)
+	}
+	if text != "func Handler()" {
+		t.Errorf("expected the bare chunk body, got %q", text)
+	}
+}
+
+func TestEmbedBuilderIncludesPathByDefault(t *testing.T) {
+	st := seedStore(t, map[string][]domain.Chunk{
+		"doc1": {{ID: "c1", Text: "body", StartLine: 1, EndLine: 2}},
+	})
+	emb := &fakeEmbedder{dimension: 4}
+
+	uc, err := NewEmbedBuilder().Store(st).Embedder(emb).VectorStore(newFakeVectorStore()).Build()
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+	if _, err := uc.Sync(nil); err != nil {
+		t.Fatalf("sync failed: %v", err)
+	}
+
+	if !strings.Contains(emb.calls[0][0], "/src/doc1.go:1-2") {
+		t.Errorf("path should be included by default, got %q", emb.calls[0][0])
+	}
+}
