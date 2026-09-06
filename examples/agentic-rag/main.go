@@ -1021,6 +1021,9 @@ func main() {
 
 	flag.Parse()
 
+	cwd, _ := os.Getwd()
+	config.LoadDotEnv(*indexPath, cwd)
+
 	if *query == "" {
 		fmt.Println("Usage: go run main.go -q \"your query\" [options]")
 		fmt.Println("\nOptions:")

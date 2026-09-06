@@ -35,6 +35,9 @@ Example usage:
 			}
 		}
 
+		cwd, _ := os.Getwd()
+		config.LoadDotEnv(rootDir, cwd)
+
 		if cfgFile != "" {
 			cfg, err = config.Load(cfgFile)
 		} else {
