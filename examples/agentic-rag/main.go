@@ -67,6 +67,7 @@ type LLMStats struct {
 	TotalOutputChars  int
 	TotalInputTokens  int
 	TotalOutputTokens int
+	ReportedTokens    bool
 }
 
 type ChatMessage struct {
@@ -85,6 +86,11 @@ type ChatResponse struct {
 	Choices []struct {
 		Message ChatMessage `json:"message"`
 	} `json:"choices"`
+	Usage struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	} `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
@@ -182,8 +188,14 @@ func (c *LLMClient) Chat(messages []ChatMessage) (string, error) {
 	c.stats.TotalInputChars += inputChars
 	c.stats.TotalOutputChars += len(output)
 
-	c.stats.TotalInputTokens += inputChars / 4
-	c.stats.TotalOutputTokens += len(output) / 4
+	if chatResp.Usage.TotalTokens > 0 {
+		c.stats.ReportedTokens = true
+		c.stats.TotalInputTokens += chatResp.Usage.PromptTokens
+		c.stats.TotalOutputTokens += chatResp.Usage.CompletionTokens
+	} else {
+		c.stats.TotalInputTokens += inputChars / 4
+		c.stats.TotalOutputTokens += len(output) / 4
+	}
 
 	return output, nil
 }
@@ -246,11 +258,12 @@ type AgenticRAGOptions struct {
 }
 
 type SearchResult struct {
-	Query       string
-	Chunks      []domain.ScoredChunk
-	Context     string
-	Answer      string
-	QueriesUsed []string
+	Query          string
+	Chunks         []domain.ScoredChunk
+	Context        string
+	Answer         string
+	QueriesUsed    []string
+	IterationsUsed int
 }
 
 type ContentStats struct {
@@ -407,11 +420,12 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 			}
 
 			return &SearchResult{
-				Query:       originalQuery,
-				Chunks:      chunks,
-				Context:     context,
-				Answer:      answer,
-				QueriesUsed: expandedQueries,
+				Query:          originalQuery,
+				Chunks:         chunks,
+				Context:        context,
+				Answer:         answer,
+				QueriesUsed:    expandedQueries,
+				IterationsUsed: iter + 1,
 			}, nil
 		}
 
@@ -507,11 +521,12 @@ func (a *AgenticRAG) Run(originalQuery string) (*SearchResult, error) {
 	}
 
 	return &SearchResult{
-		Query:       originalQuery,
-		Chunks:      chunks,
-		Context:     context,
-		Answer:      answer,
-		QueriesUsed: expandedQueries,
+		Query:          originalQuery,
+		Chunks:         chunks,
+		Context:        context,
+		Answer:         answer,
+		QueriesUsed:    expandedQueries,
+		IterationsUsed: a.maxIters,
 	}, nil
 }
 
@@ -583,11 +598,12 @@ func (a *AgenticRAG) runFastMode(originalQuery string, queries []string) (*Searc
 	}
 
 	return &SearchResult{
-		Query:       originalQuery,
-		Chunks:      chunks,
-		Context:     context,
-		Answer:      answer,
-		QueriesUsed: queries,
+		Query:          originalQuery,
+		Chunks:         chunks,
+		Context:        context,
+		Answer:         answer,
+		QueriesUsed:    queries,
+		IterationsUsed: 1,
 	}, nil
 }
 
@@ -990,7 +1006,7 @@ func main() {
 
 	query := flag.String("q", "", "Search query (required)")
 	indexPath := flag.String("index", ".", "Path to indexed directory")
-	provider := flag.String("provider", "deepseek", "LLM provider: deepseek, openai, local")
+	provider := flag.String("provider", "deepseek", "LLM provider: deepseek, openai")
 	model := flag.String("model", "deepseek-chat", "Model name")
 	baseURL := flag.String("base-url", "", "Custom API base URL (optional)")
 	apiKey := flag.String("api-key", "", "API key (optional, uses env var if not set)")
@@ -1046,6 +1062,7 @@ func main() {
 	mmr := retriever.NewMMRReranker(cfg.Retrieve.MMRLambda, cfg.Retrieve.DedupJaccard)
 
 	var searchRetriever port.Retriever = bm25
+	retrievalMode := "BM25 only (hybrid disabled or embeddings unavailable)"
 	if cfg.Retrieve.HybridEnabled && cfg.Embedding.Enabled {
 		embedder, vectorStore, err := setupHybridRetrieval(st, cfg)
 		if err != nil {
@@ -1064,6 +1081,7 @@ func main() {
 			if *verbose {
 				fmt.Printf("Hybrid search enabled (BM25 + vector)\n")
 			}
+			retrievalMode = fmt.Sprintf("hybrid: BM25 + %s vectors, RRF (bm25_weight=%.2f)", embedder.ModelName(), cfg.Retrieve.BM25Weight)
 		}
 	}
 
@@ -1167,9 +1185,24 @@ func main() {
 	fullContextTokens := contentStats.TotalTokensEst + 100
 	tokensUsed := llmStats.TotalInputTokens + llmStats.TotalOutputTokens
 
+	tokenSource := "estimated from characters"
+	if llmStats.ReportedTokens {
+		tokenSource = "reported by the API"
+	}
+
 	fmt.Printf("\n%s\n", strings.Repeat("─", 70))
-	fmt.Printf("📊 TOKEN USAGE: ~%s tokens (with RAG) vs ~%s tokens (without RAG)\n",
-		formatNumber(tokensUsed), formatNumber(fullContextTokens))
+	fmt.Printf("📊 PIPELINE STATS\n")
+	fmt.Printf("%s\n", strings.Repeat("─", 70))
+	fmt.Printf("   Retrieval:              %s\n", retrievalMode)
+	fmt.Printf("   LLM model:              %s\n", *model)
+	fmt.Printf("   Back-and-forth rounds:  %d of %d max\n", result.IterationsUsed, *maxIters)
+	fmt.Printf("   LLM calls:              %d\n", llmStats.TotalCalls)
+	fmt.Printf("   Search queries used:    %d\n", len(result.QueriesUsed))
+	fmt.Printf("   Chunks retrieved:       %d\n", len(result.Chunks))
+	fmt.Printf("   Input tokens:           %s\n", formatNumber(llmStats.TotalInputTokens))
+	fmt.Printf("   Output tokens:          %s\n", formatNumber(llmStats.TotalOutputTokens))
+	fmt.Printf("   Total tokens:           %s  (%s)\n", formatNumber(tokensUsed), tokenSource)
+	fmt.Printf("   Without RAG would need: ~%s tokens (whole corpus)\n", formatNumber(fullContextTokens))
 	if fullContextTokens > 0 {
 		reduction := float64(fullContextTokens) / float64(max(llmStats.TotalInputTokens, 1))
 		fmt.Printf("   💰 RAG saved %.1fx tokens\n", reduction)
