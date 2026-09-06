@@ -119,7 +119,7 @@ rag query -q "how to handle errors" --semantic
 - `-k, --top-k` - Number of results (default from config)
 - `--json` - Output as JSON
 - `--no-mmr` - Disable MMR reranking
-- `--semantic` - Use embedding-only search (no BM25)
+- `--semantic` - Use embedding-only search (no BM25); mutually exclusive with `--lexical`
 - `--lexical` - Use BM25-only search (no embeddings)
 - `--explain` - Print which retrieval arms ran and how many candidates each produced
 - `--hyde` - Expand the query with one LLM-generated hypothetical answer (1 API call, cached)
@@ -142,7 +142,9 @@ rag ask -q "how does authentication work" --hyde    # better retrieval, cached p
 - `--expand` - Expand the query with the LLM first (+1 call)
 - `--hyde` - Expand retrieval with a hypothetical answer (+1 call, cached)
 - `--max-iters` - Maximum retrieve/evaluate rounds (default 2)
-- `-k, --top-k`, `-b, --budget`, `--lexical`, `--explain`
+- `--semantic` - Vector search only, no BM25
+- `--lexical` - BM25 only, no embeddings
+- `-k, --top-k`, `-b, --budget`, `--explain`
 
 Every run prints a stats block: retrieval mode, rounds used, LLM calls, and input/output/total
 tokens (reported by the API when the provider returns a usage field).

@@ -112,6 +112,10 @@ func runQuery(cmd *cobra.Command, args []string) error {
 
 	mmr := retriever.NewMMRReranker(cfg.Retrieve.MMRLambda, cfg.Retrieve.DedupJaccard)
 
+	if querySemantic && queryLexical {
+		return fmt.Errorf("--lexical and --semantic are mutually exclusive")
+	}
+
 	mode := ModeAuto
 	if querySemantic {
 		mode = ModeSemantic
