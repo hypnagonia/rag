@@ -1270,13 +1270,22 @@ func main() {
 }
 
 func formatNumber(n int) string {
-	if n >= 1000000 {
-		return fmt.Sprintf("%dM", n/1000000)
+	sign := ""
+	if n < 0 {
+		sign = "-"
+		n = -n
 	}
-	if n >= 1000 {
-		return fmt.Sprintf("%dk", n/1000)
+
+	digits := fmt.Sprintf("%d", n)
+	var out []byte
+	for i, c := range []byte(digits) {
+		if i > 0 && (len(digits)-i)%3 == 0 {
+			out = append(out, ',')
+		}
+		out = append(out, c)
 	}
-	return fmt.Sprintf("%d", n)
+
+	return sign + string(out)
 }
 
 func max(a, b int) int {
