@@ -37,6 +37,7 @@ examples/*/main
 agentic-rag
 rag
 benchmark
+rageval
 
 # WASM build output
 *.wasm
