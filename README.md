@@ -167,6 +167,20 @@ tokens (reported by the API when the provider returns a usage field).
 
 The API key is read from `.env` automatically - see the `llm:` section under Configuration.
 
+### `rag compact`
+
+Shrink the index on disk. Rewrites legacy JSON vector records as packed binary and
+reclaims free pages. No re-embedding, no change to results.
+
+```bash
+rag compact -d /path/to/content
+# Rewrote 20340 vector records as packed binary
+# Index: 579.3 MB -> 192.7 MB  (66.7% smaller)
+```
+
+Indexes created after this change already use the binary format; run it once on older
+indexes, and any time deletions have left free pages behind.
+
 ### `rag pack -q "<question>"`
 
 Pack relevant chunks into compressed context that fits a token budget.
@@ -484,7 +498,7 @@ cmd/wasm/main.go         # WASM entrypoint
 internal/
 ├── domain/              # Core entities (Document, Chunk, etc.)
 ├── port/                # Interfaces (IndexStore, Retriever, etc.)
-├── usecase/             # Business logic
+├── usecase/             # Business logic             # Business logic
 │   ├── index.go         # Indexing orchestration
 │   ├── embed.go         # Incremental embedding sync
 │   ├── retrieve.go      # Search with BM25 + MMR

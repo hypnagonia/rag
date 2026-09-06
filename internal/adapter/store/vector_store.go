@@ -22,7 +22,8 @@ type BoltVectorStore struct {
 	dimension int
 	mu        sync.RWMutex
 
-	vectors map[string]vectorEntry
+	vectors       map[string]vectorEntry
+	legacyRecords int
 }
 
 type vectorEntry struct {
@@ -79,17 +80,20 @@ func (s *BoltVectorStore) loadVectors() error {
 		}
 
 		return b.ForEach(func(k, v []byte) error {
-			var stored storedVector
-			if err := json.Unmarshal(v, &stored); err != nil {
+			vector, metadata, err := decodeVector(v)
+			if err != nil {
 				return nil
 			}
-			if len(stored.Vector) != s.dimension {
+			if len(vector) != s.dimension {
 				return nil
+			}
+			if isLegacyVectorRecord(v) {
+				s.legacyRecords++
 			}
 			s.vectors[string(k)] = vectorEntry{
-				vector:   stored.Vector,
-				norm:     l2Norm(stored.Vector),
-				metadata: stored.Metadata,
+				vector:   vector,
+				norm:     l2Norm(vector),
+				metadata: metadata,
 			}
 			return nil
 		})
@@ -152,11 +156,7 @@ func (s *BoltVectorStore) Upsert(items []port.VectorItem) error {
 		}
 
 		for _, item := range items {
-			stored := storedVector{
-				Vector:   item.Vector,
-				Metadata: item.Metadata,
-			}
-			data, err := json.Marshal(stored)
+			data, err := encodeVector(item.Vector, item.Metadata)
 			if err != nil {
 				return err
 			}
@@ -327,4 +327,58 @@ func l2Norm(v []float32) float64 {
 		sum += float64(x) * float64(x)
 	}
 	return math.Sqrt(sum)
+}
+
+func (s *BoltVectorStore) LegacyRecordCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.legacyRecords
+}
+
+func (s *BoltVectorStore) RewriteLegacyRecords() (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rewritten := 0
+
+	err := s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketVectors)
+		if b == nil {
+			return nil
+		}
+
+		var keys [][]byte
+		if err := b.ForEach(func(k, v []byte) error {
+			if isLegacyVectorRecord(v) {
+				keys = append(keys, append([]byte(nil), k...))
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+
+		for _, k := range keys {
+			vector, metadata, err := decodeVector(b.Get(k))
+			if err != nil {
+				continue
+			}
+			encoded, err := encodeVector(vector, metadata)
+			if err != nil {
+				return err
+			}
+			if err := b.Put(k, encoded); err != nil {
+				return err
+			}
+			rewritten++
+		}
+
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	s.legacyRecords -= rewritten
+
+	return rewritten, nil
 }
