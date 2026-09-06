@@ -23,6 +23,7 @@ var (
 	askExpand   bool
 	askHyDE     bool
 	askLexical  bool
+	askSemantic bool
 	askExplain  bool
 )
 
@@ -51,6 +52,7 @@ func init() {
 	askCmd.Flags().BoolVar(&askExpand, "expand", false, "expand the query with the LLM first (+1 call)")
 	askCmd.Flags().BoolVar(&askHyDE, "hyde", false, "expand retrieval with a hypothetical answer (+1 call, cached)")
 	askCmd.Flags().BoolVar(&askLexical, "lexical", false, "BM25 only, no embeddings")
+	askCmd.Flags().BoolVar(&askSemantic, "semantic", false, "vector search only, no BM25")
 	askCmd.Flags().BoolVar(&askExplain, "explain", false, "print retrieval diagnostics")
 	askCmd.MarkFlagRequired("query")
 }
@@ -72,8 +74,14 @@ func runAsk(cmd *cobra.Command, args []string) error {
 
 	tokenizer := analyzer.NewTokenizer(cfg.Index.Stemming)
 
+	if askLexical && askSemantic {
+		return fmt.Errorf("--lexical and --semantic are mutually exclusive")
+	}
+
 	mode := ModeAuto
-	if askLexical {
+	if askSemantic {
+		mode = ModeSemantic
+	} else if askLexical {
 		mode = ModeLexical
 	}
 
