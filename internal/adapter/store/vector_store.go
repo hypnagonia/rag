@@ -24,6 +24,13 @@ type BoltVectorStore struct {
 
 	vectors       map[string]vectorEntry
 	legacyRecords int
+	encoding      byte
+}
+
+func (s *BoltVectorStore) SetEncoding(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.encoding = formatForEncoding(name)
 }
 
 type vectorEntry struct {
@@ -63,6 +70,7 @@ func NewBoltVectorStore(db *bbolt.DB, dimension int) (*BoltVectorStore, error) {
 		db:        db,
 		dimension: dimension,
 		vectors:   make(map[string]vectorEntry),
+		encoding:  vectorFormatFloat32,
 	}
 
 	if err := store.loadVectors(); err != nil {
@@ -156,7 +164,7 @@ func (s *BoltVectorStore) Upsert(items []port.VectorItem) error {
 		}
 
 		for _, item := range items {
-			data, err := encodeVector(item.Vector, item.Metadata)
+			data, err := encodeVectorAs(item.Vector, item.Metadata, s.encoding)
 			if err != nil {
 				return err
 			}
@@ -381,4 +389,83 @@ func (s *BoltVectorStore) RewriteLegacyRecords() (int, error) {
 	s.legacyRecords -= rewritten
 
 	return rewritten, nil
+}
+
+func (s *BoltVectorStore) ReencodeAs(encoding string) (int, error) {
+	format := formatForEncoding(encoding)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	converted := 0
+
+	err := s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketVectors)
+		if b == nil {
+			return nil
+		}
+
+		var keys [][]byte
+		if err := b.ForEach(func(k, v []byte) error {
+			if len(v) == 0 || v[0] != format {
+				keys = append(keys, append([]byte(nil), k...))
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+
+		for _, k := range keys {
+			vector, metadata, err := decodeVector(b.Get(k))
+			if err != nil {
+				continue
+			}
+			encoded, err := encodeVectorAs(vector, metadata, format)
+			if err != nil {
+				return err
+			}
+			if err := b.Put(k, encoded); err != nil {
+				return err
+			}
+			converted++
+		}
+
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	if err := s.loadVectorsLocked(); err != nil {
+		return converted, err
+	}
+
+	return converted, nil
+}
+
+func (s *BoltVectorStore) loadVectorsLocked() error {
+	s.vectors = make(map[string]vectorEntry)
+	s.legacyRecords = 0
+	return s.loadVectors()
+}
+
+func (s *BoltVectorStore) EncodingBreakdown() map[string]int {
+	out := map[string]int{}
+
+	s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketVectors)
+		if b == nil {
+			return nil
+		}
+		return b.ForEach(func(k, v []byte) error {
+			if isLegacyVectorRecord(v) {
+				out["json"]++
+			} else if len(v) > 0 {
+				out[encodingName(v[0])]++
+			}
+			return nil
+		})
+	})
+
+	return out
 }

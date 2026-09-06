@@ -214,6 +214,8 @@ func generateEmbeddings(st *store.BoltStore, cfg *config.Config) (*usecase.Embed
 		}
 	}
 
+	vectorStore.SetEncoding(cfg.Embedding.VectorEncoding)
+
 	embedUC, err := usecase.NewEmbedBuilder().
 		Store(st).
 		Embedder(embedder).

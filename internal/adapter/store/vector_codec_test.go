@@ -96,7 +96,7 @@ func TestVectorCodecRejectsCorruptRecords(t *testing.T) {
 	if _, _, err := decodeVector([]byte{9, 0, 0, 0, 0}); err == nil {
 		t.Error("expected an error for an unknown format byte")
 	}
-	truncated := []byte{vectorFormatBinaryV1, 100, 0, 0, 0, 1, 2}
+	truncated := []byte{vectorFormatFloat32, 100, 0, 0, 0, 1, 2}
 	if _, _, err := decodeVector(truncated); err == nil {
 		t.Error("expected an error for a truncated body")
 	}
@@ -184,4 +184,74 @@ func TestVectorStoreWritesBinaryRecords(t *testing.T) {
 		}
 		return nil
 	})
+}
+
+func TestVectorStoreHonoursConfiguredEncoding(t *testing.T) {
+	for _, tc := range []struct {
+		encoding string
+		format   byte
+		size     int
+	}{
+		{EncodingFloat32, vectorFormatFloat32, vectorHeaderSize + 3*4},
+		{EncodingFloat16, vectorFormatFloat16, vectorHeaderSize + 3*2},
+		{EncodingInt8, vectorFormatInt8, vectorHeaderSize + 4 + 3},
+	} {
+		vs, db := newTestVectorStore(t, 3)
+		vs.SetEncoding(tc.encoding)
+
+		if err := vs.Upsert([]port.VectorItem{{ID: "a", Vector: []float32{0.5, -0.5, 0.25}}}); err != nil {
+			t.Fatalf("%s: upsert failed: %v", tc.encoding, err)
+		}
+
+		db.View(func(tx *bbolt.Tx) error {
+			raw := tx.Bucket(bucketVectors).Get([]byte("a"))
+			if raw[0] != tc.format {
+				t.Errorf("%s: expected format byte %d, got %d", tc.encoding, tc.format, raw[0])
+			}
+			if len(raw) != tc.size {
+				t.Errorf("%s: expected %d bytes, got %d", tc.encoding, tc.size, len(raw))
+			}
+			return nil
+		})
+	}
+}
+
+func TestReencodeConvertsEveryRecord(t *testing.T) {
+	vs, _ := newTestVectorStore(t, 4)
+
+	if err := vs.Upsert([]port.VectorItem{
+		{ID: "a", Vector: []float32{0.1, 0.2, 0.3, 0.4}},
+		{ID: "b", Vector: []float32{-0.4, 0.3, -0.2, 0.1}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	converted, err := vs.ReencodeAs(EncodingInt8)
+	if err != nil {
+		t.Fatalf("reencode failed: %v", err)
+	}
+	if converted != 2 {
+		t.Errorf("expected 2 conversions, got %d", converted)
+	}
+
+	breakdown := vs.EncodingBreakdown()
+	if breakdown[EncodingInt8] != 2 {
+		t.Errorf("expected 2 int8 records, got %v", breakdown)
+	}
+
+	again, err := vs.ReencodeAs(EncodingInt8)
+	if err != nil {
+		t.Fatalf("second reencode failed: %v", err)
+	}
+	if again != 0 {
+		t.Errorf("re-encoding to the same format should be a no-op, converted %d", again)
+	}
+
+	results, err := vs.Search([]float32{0.1, 0.2, 0.3, 0.4}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].ID != "a" || results[0].Score < 0.999 {
+		t.Errorf("quantized vector should still match itself closely, got %+v", results)
+	}
 }

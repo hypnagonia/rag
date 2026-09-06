@@ -167,6 +167,32 @@ tokens (reported by the API when the provider returns a usage field).
 
 The API key is read from `.env` automatically - see the `llm:` section under Configuration.
 
+### Vector encoding
+
+Vectors dominate the index. Three encodings are available, switchable in place with
+`rag compact --encoding` - no re-embedding required:
+
+| encoding | index size | recall@10 | MRR | top-20 order |
+|---|---|---|---|---|
+| `float32` (default) | 193 MB | 6/14 | 0.329 | baseline |
+| `float16` | 132 MB (-32%) | 6/14 | 0.329 | identical |
+| `int8` | 108 MB (-44%) | 6/14 | 0.329 | identical |
+
+Measured on a 20,340-vector index of ~7.5 MB of prose. Both lossy encodings produced
+byte-identical rankings; int8 score deviations were around 0.0007. Query latency was
+unchanged at 0.13s.
+
+```bash
+rag compact -d ./books --encoding int8
+```
+
+One caveat: conversion is **one-way**. Going from `int8` back to `float32` restores the
+format but not the discarded precision - you would need to re-index. Measure with
+`rageval` on your own corpus before converting, since these numbers come from one prose
+corpus and quantization error is corpus-dependent.
+
+Set `embedding.vector_encoding` to build new indexes directly in a given encoding.
+
 ### `rageval` - measuring retrieval quality
 
 CLAUDE.md requires measuring changes to the embedding model, chunk size or embedded-text
@@ -296,6 +322,7 @@ logging:
 | `embedding` | `model` | Embedding model name | `text-embedding-3-small` |
 | `embedding` | `dimension` | Vector size; probed from the provider when possible | model default |
 | `embedding` | `include_path` | Prefix embedded chunks with `path:lines` | `true` |
+| `embedding` | `vector_encoding` | `float32`, `float16` or `int8` (see Vector encoding) | `float32` |
 | `llm` | `provider` | `deepseek` or `openai` (hosted only) | `deepseek` |
 | `llm` | `model` | Chat model name | `deepseek-chat` |
 | `llm` | `api_key_env` | Env var holding the key; also read from `.env` | `DEEPSEEK_API_KEY` |

@@ -9,6 +9,8 @@ import (
 	"rag/internal/adapter/store"
 )
 
+var compactEncoding string
+
 var compactCmd = &cobra.Command{
 	Use:   "compact",
 	Short: "Shrink the index on disk",
@@ -22,6 +24,7 @@ then compacts the database file.`,
 
 func init() {
 	rootCmd.AddCommand(compactCmd)
+	compactCmd.Flags().StringVar(&compactEncoding, "encoding", "", "re-encode vectors: float32, float16 or int8 (float16 and int8 are lossy)")
 }
 
 func runCompact(cmd *cobra.Command, args []string) error {
@@ -38,6 +41,14 @@ func runCompact(cmd *cobra.Command, args []string) error {
 	}
 	if rewritten > 0 {
 		fmt.Printf("Rewrote %d vector records as packed binary\n", rewritten)
+	}
+
+	if compactEncoding != "" {
+		converted, breakdown, err := reencodeVectors(dbPath, compactEncoding)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Re-encoded %d vectors as %s %v\n", converted, compactEncoding, breakdown)
 	}
 
 	before, after, err := store.CompactFile(dbPath)
@@ -102,4 +113,35 @@ func formatBytes(n int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMG"[exp])
+}
+
+func reencodeVectors(dbPath, encoding string) (int, map[string]int, error) {
+	switch encoding {
+	case store.EncodingFloat32, store.EncodingFloat16, store.EncodingInt8:
+	default:
+		return 0, nil, fmt.Errorf("unknown encoding %q (want float32, float16 or int8)", encoding)
+	}
+
+	st, err := store.NewBoltStore(dbPath)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer st.Close()
+
+	meta, err := readVectorMeta(st)
+	if err != nil || meta == nil || meta.Dimension <= 0 {
+		return 0, nil, nil
+	}
+
+	vectorStore, err := store.NewBoltVectorStore(st.DB(), meta.Dimension)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	converted, err := vectorStore.ReencodeAs(encoding)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	return converted, vectorStore.EncodingBreakdown(), nil
 }

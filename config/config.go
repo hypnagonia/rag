@@ -25,7 +25,8 @@ type EmbeddingConfig struct {
 	Dimension int    `yaml:"dimension"`
 	BatchSize int    `yaml:"batch_size"`
 
-	IncludePath bool `yaml:"include_path"`
+	IncludePath    bool   `yaml:"include_path"`
+	VectorEncoding string `yaml:"vector_encoding"`
 }
 
 type LLMConfig struct {
@@ -93,13 +94,14 @@ func DefaultConfig() *Config {
 			BM25Weight:      0.5,
 		},
 		Embedding: EmbeddingConfig{
-			Enabled:     false,
-			Provider:    "openai",
-			Model:       "text-embedding-3-small",
-			APIKeyEnv:   "OPENAI_API_KEY",
-			Dimension:   1536,
-			BatchSize:   100,
-			IncludePath: true,
+			Enabled:        false,
+			Provider:       "openai",
+			Model:          "text-embedding-3-small",
+			APIKeyEnv:      "OPENAI_API_KEY",
+			Dimension:      1536,
+			BatchSize:      100,
+			IncludePath:    true,
+			VectorEncoding: "float32",
 		},
 		LLM: LLMConfig{
 			Provider:  "deepseek",
