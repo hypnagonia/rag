@@ -125,6 +125,30 @@ rag query -q "how to handle errors" --semantic
 - `--hyde` - Expand the query with one LLM-generated hypothetical answer (1 API call, cached)
 - `-c, --context` - Expand results by N lines before/after
 
+### `rag ask -q "<question>"`
+
+Retrieve context and have a hosted LLM answer the question, with citations. This is the
+full pipeline: hybrid retrieval plus generation.
+
+```bash
+rag ask -q "how does authentication work"
+rag ask -q "how does authentication work" --fast    # exactly one LLM call
+rag ask -q "how does authentication work" --hyde    # better retrieval, cached probe
+```
+
+**Flags:**
+- `-q, --query` - Question (required)
+- `--fast` - Search once and answer: exactly one LLM call
+- `--expand` - Expand the query with the LLM first (+1 call)
+- `--hyde` - Expand retrieval with a hypothetical answer (+1 call, cached)
+- `--max-iters` - Maximum retrieve/evaluate rounds (default 2)
+- `-k, --top-k`, `-b, --budget`, `--lexical`, `--explain`
+
+Every run prints a stats block: retrieval mode, rounds used, LLM calls, and input/output/total
+tokens (reported by the API when the provider returns a usage field).
+
+The API key is read from `.env` automatically - see the `llm:` section under Configuration.
+
 ### `rag pack -q "<question>"`
 
 Pack relevant chunks into compressed context that fits a token budget.

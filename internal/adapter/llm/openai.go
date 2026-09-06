@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"rag/internal/port"
@@ -30,6 +31,24 @@ type Client struct {
 	maxTokens   int
 	temperature float64
 	client      *http.Client
+
+	mu    sync.Mutex
+	stats Stats
+}
+
+type Stats struct {
+	Calls         int
+	InputTokens   int
+	OutputTokens  int
+	ReportedByAPI bool
+	InputChars    int
+	OutputChars   int
+}
+
+func (c *Client) Stats() Stats {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.stats
 }
 
 type chatMessage struct {
@@ -49,6 +68,11 @@ type chatResponse struct {
 	Choices []struct {
 		Message chatMessage `json:"message"`
 	} `json:"choices"`
+	Usage struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	} `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
@@ -198,7 +222,28 @@ func (c *Client) chat(messages []chatMessage) (string, error) {
 		return "", fmt.Errorf("LLM returned no choices")
 	}
 
-	return stripReasoning(parsed.Choices[0].Message.Content), nil
+	output := stripReasoning(parsed.Choices[0].Message.Content)
+
+	var inputChars int
+	for _, m := range messages {
+		inputChars += len(m.Content)
+	}
+
+	c.mu.Lock()
+	c.stats.Calls++
+	c.stats.InputChars += inputChars
+	c.stats.OutputChars += len(output)
+	if parsed.Usage.TotalTokens > 0 {
+		c.stats.ReportedByAPI = true
+		c.stats.InputTokens += parsed.Usage.PromptTokens
+		c.stats.OutputTokens += parsed.Usage.CompletionTokens
+	} else {
+		c.stats.InputTokens += inputChars / 4
+		c.stats.OutputTokens += len(output) / 4
+	}
+	c.mu.Unlock()
+
+	return output, nil
 }
 
 func stripReasoning(s string) string {
