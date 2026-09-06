@@ -1,0 +1,19 @@
+{
+  "corpus": "A Song of Ice and Fire, books 1-4",
+  "questions": [
+    {"question": "How did Ned Stark die", "anchor": "flung Lord Eddard to the marble"},
+    {"question": "Why did Jaime push Bran out of the tower window", "anchor": "things I do for love"},
+    {"question": "How did Robb Stark die at the Red Wedding", "anchor": "Lannister sends his regards"},
+    {"question": "How did Viserys Targaryen die", "anchor": "molten gold trickled down his face"},
+    {"question": "What is the oath sworn by the Night's Watch", "anchor": "Night gathers, and now my watch begins"},
+    {"question": "How did Joffrey die", "anchor": "clawing at his throat"},
+    {"question": "How was Renly Baratheon killed", "anchor": "shadow with a sword"},
+    {"question": "Where was Tywin Lannister killed", "anchor": "on the privy"},
+    {"question": "What did Oberyn accuse Gregor Clegane of doing to Elia", "anchor": "You raped her"},
+    {"question": "What happened to Daenerys in Drogo's funeral pyre", "anchor": "her hair had burned away"},
+    {"question": "What was prophesied about Daenerys's unborn son", "anchor": "stallion who mounts the world"},
+    {"question": "Who is on Arya's list of people she wants dead", "anchor": "Dunsen"},
+    {"question": "What is Bran's prophetic dreaming ability called", "anchor": "greensight"},
+    {"question": "What does valar morghulis mean", "anchor": "Valar morghulis"}
+  ]
+}

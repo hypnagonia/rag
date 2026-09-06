@@ -167,6 +167,30 @@ tokens (reported by the API when the provider returns a usage field).
 
 The API key is read from `.env` automatically - see the `llm:` section under Configuration.
 
+### `rageval` - measuring retrieval quality
+
+CLAUDE.md requires measuring changes to the embedding model, chunk size or embedded-text
+format against a ground-truth set rather than guessing. `cmd/rageval` is that harness.
+
+```bash
+go run ./cmd/rageval -corpus /path/to/indexed -k 10
+```
+```
+14 questions, recall, MMR disabled
+
+MODE             RECALL      MRR   RANKS
+lexical           6/14     0.201   [- 4 - - - - - - 5 9 1 - 4 1]
+semantic          6/14     0.329   [- 1 - - - - - - 1 - 1 2 9 1]
+hybrid            6/14     0.310   [- 1 - - - - - - 2 - 1 3 2 1]
+```
+
+Each question is paired with an anchor phrase that must appear in a correctly retrieved
+passage. A `-` means the passage was not found within `-k`. Add `-modes hyde` to include
+HyDE, `-v` to print per-question ranks.
+
+The bundled set in `cmd/rageval/questions.json` covers A Song of Ice and Fire; replace it
+with questions and anchors for your own corpus.
+
 ### `rag compact`
 
 Shrink the index on disk. Rewrites legacy JSON vector records as packed binary and
