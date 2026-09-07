@@ -90,7 +90,7 @@ type Builder struct {
 
 func NewBuilder() *Builder {
 	return &Builder{
-		provider:    ProviderDeepSeek,
+		provider:    ProviderOpenAI,
 		maxTokens:   400,
 		temperature: 0.3,
 		timeout:     120 * time.Second,
@@ -148,9 +148,14 @@ func (b *Builder) Build() (port.LLM, error) {
 		baseURL = defaultURL
 	}
 
-	apiKey := os.Getenv(b.apiKeyEnv)
-	if apiKey == "" {
-		return nil, fmt.Errorf("API key not found in environment variable: %s", b.apiKeyEnv)
+	var apiKey string
+	if b.apiKeyEnv != "" {
+		apiKey = os.Getenv(b.apiKeyEnv)
+		if apiKey == "" {
+			return nil, fmt.Errorf("API key not found in environment variable: %s", b.apiKeyEnv)
+		}
+	} else if baseURL == defaultURL {
+		return nil, fmt.Errorf("provider %q has no api_key_env: a keyless endpoint needs an explicit base_url", b.provider)
 	}
 
 	return &Client{
@@ -194,7 +199,9 @@ func (c *Client) chat(messages []chatMessage) (string, error) {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {

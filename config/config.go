@@ -104,9 +104,10 @@ func DefaultConfig() *Config {
 			VectorEncoding: "float32",
 		},
 		LLM: LLMConfig{
-			Provider:  "deepseek",
-			Model:     "deepseek-chat",
-			APIKeyEnv: "DEEPSEEK_API_KEY",
+			Provider:  "openai",
+			Model:     "deepseek-web",
+			APIKeyEnv: "",
+			BaseURL:   "http://127.0.0.1:8787/v1",
 			MaxTokens: 400,
 		},
 		Pack: PackConfig{

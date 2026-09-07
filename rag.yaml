@@ -64,6 +64,15 @@ embedding:
   dimension: 768
   batch_size: 50
 
+# Text generation (ask / HyDE / agentic examples)
+# OpenAI-compatible endpoint; leave api_key_env empty for a keyless gateway
+llm:
+  provider: openai
+  model: deepseek-web
+  base_url: http://127.0.0.1:8787/v1
+  api_key_env: ""
+  max_tokens: 400
+
 pack:
   # Maximum token budget for packed context
   token_budget: 1000

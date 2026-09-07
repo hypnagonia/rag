@@ -23,14 +23,30 @@ func TestBuilderRequiresAPIKey(t *testing.T) {
 	}
 }
 
-func TestBuilderDefaultsToDeepSeek(t *testing.T) {
+func TestBuilderDefaultsToOpenAI(t *testing.T) {
 	t.Setenv("RAG_TEST_LLM_KEY", "sk-test")
-	client, err := NewBuilder().Model("deepseek-chat").APIKeyEnv("RAG_TEST_LLM_KEY").Build()
+	client, err := NewBuilder().Model("gpt-4o-mini").APIKeyEnv("RAG_TEST_LLM_KEY").Build()
 	if err != nil {
 		t.Fatalf("build failed: %v", err)
 	}
-	if c := client.(*Client); c.baseURL != providerDefaults[ProviderDeepSeek] {
-		t.Errorf("expected the DeepSeek endpoint by default, got %q", c.baseURL)
+	if c := client.(*Client); c.baseURL != providerDefaults[ProviderOpenAI] {
+		t.Errorf("expected the OpenAI endpoint by default, got %q", c.baseURL)
+	}
+}
+
+func TestBuilderAllowsKeylessGatewayWithExplicitBaseURL(t *testing.T) {
+	client, err := NewBuilder().Model("deepseek-web").BaseURL("http://127.0.0.1:8787/v1").Build()
+	if err != nil {
+		t.Fatalf("a keyless gateway with an explicit base_url must build: %v", err)
+	}
+	if c := client.(*Client); c.apiKey != "" {
+		t.Errorf("expected no API key, got %q", c.apiKey)
+	}
+}
+
+func TestBuilderRejectsKeylessProviderDefault(t *testing.T) {
+	if _, err := NewBuilder().Model("gpt-4o-mini").Build(); err == nil {
+		t.Error("a keyless build against the provider default endpoint must be rejected")
 	}
 }
 
@@ -135,5 +151,25 @@ func TestGenerateWithSystemSendsBothMessages(t *testing.T) {
 	}
 	if len(got.Messages) != 2 || got.Messages[0].Role != "system" || got.Messages[1].Role != "user" {
 		t.Errorf("expected a system+user message pair, got %+v", got.Messages)
+	}
+}
+
+func TestGenerateOmitsAuthorizationWhenKeyless(t *testing.T) {
+	var hadAuth bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, hadAuth = r.Header["Authorization"]
+		w.Write([]byte(chatReply("34")))
+	}))
+	defer srv.Close()
+
+	client, err := NewBuilder().Model("deepseek-web").BaseURL(srv.URL).Build()
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+	if _, err := client.Generate("2 + 2 * 16."); err != nil {
+		t.Fatalf("generate failed: %v", err)
+	}
+	if hadAuth {
+		t.Error("a keyless client must not send an Authorization header")
 	}
 }
