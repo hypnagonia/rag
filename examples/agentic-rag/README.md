@@ -25,8 +25,9 @@ Index your content first:
 rag index /path/to/your/content
 ```
 
-The API key is read from `.env` (searched upward from `-index` and the working
-directory) or from the environment.
+With the default config the endpoint is keyless. If `llm.api_key_env` names a variable,
+the key is read from `.env` (searched upward from `-index` and the working directory) or
+from the environment.
 
 ```bash
 # one LLM call
@@ -66,5 +67,5 @@ Token counts come from the provider's `usage` field when it reports one; the lin
 which source was used. Cheapest run is `-fast`; most expensive is `-expand` with several
 rounds.
 
-Generation runs against a hosted provider only (DeepSeek or OpenAI), configured under
-`llm:` in `rag.yaml`. Embeddings may be local.
+Generation goes through an OpenAI-compatible chat endpoint configured under `llm:` in
+`rag.yaml`; the adapter has no local-model provider. Embeddings may be local.

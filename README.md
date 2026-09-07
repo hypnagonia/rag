@@ -85,19 +85,30 @@ embedding:
   include_path: false    # true for code, false for prose
 
 llm:
-  provider: deepseek     # hosted only; no local LLM
-  model: deepseek-chat
-  api_key_env: DEEPSEEK_API_KEY
+  provider: openai       # OpenAI-compatible chat endpoint
+  model: deepseek-web
+  base_url: http://127.0.0.1:8787/v1
+  api_key_env: ""        # empty = keyless gateway, no Authorization header
 
 pack:
   token_budget: 4000
 ```
 
-Put your API key in a `.env` file next to the config (or anywhere up the directory
-tree) - it is read automatically, no `export` needed:
+The default endpoint above needs no key. To point at a keyed provider instead, set
+`base_url` (or drop it for the provider default) and name the env var holding the key:
+
+```yaml
+llm:
+  provider: openai
+  model: gpt-4o-mini
+  api_key_env: OPENAI_API_KEY
+```
+
+Put that key in a `.env` file next to the config (or anywhere up the directory tree) -
+it is read automatically, no `export` needed:
 
 ```
-DEEPSEEK_API_KEY=sk-...
+OPENAI_API_KEY=sk-...
 ```
 
 ```bash
@@ -336,9 +347,10 @@ logging:
 | `embedding` | `dimension` | Vector size; probed from the provider when possible | model default |
 | `embedding` | `include_path` | Prefix embedded chunks with `path:lines` | `true` |
 | `embedding` | `vector_encoding` | `float32`, `float16` or `int8` (see Vector encoding) | `float32` |
-| `llm` | `provider` | `deepseek` or `openai` (hosted only) | `deepseek` |
-| `llm` | `model` | Chat model name | `deepseek-chat` |
-| `llm` | `api_key_env` | Env var holding the key; also read from `.env` | `DEEPSEEK_API_KEY` |
+| `llm` | `provider` | `openai` or `deepseek`; picks the default endpoint | `openai` |
+| `llm` | `base_url` | Override the endpoint (any OpenAI-compatible server) | provider default |
+| `llm` | `model` | Chat model name | `deepseek-web` |
+| `llm` | `api_key_env` | Env var holding the key; also read from `.env`. Empty sends no `Authorization` header, and then `base_url` is required | `""` |
 | `pack` | `token_budget` | Default token budget | `4000` |
 
 ### Hybrid Search (BM25 + Vector Embeddings)
@@ -429,13 +441,15 @@ appends it to the query, and searches with both. The generated text is cached in
 so repeating a query costs zero API calls. If the LLM fails, the search silently falls back
 to the plain query.
 
-Generation runs against a hosted API only - there is deliberately no local-LLM provider:
+Generation goes through an OpenAI-compatible chat endpoint - the adapter deliberately has
+no local-model provider:
 
 ```yaml
 llm:
-  provider: deepseek        # or openai
-  model: deepseek-chat
-  api_key_env: DEEPSEEK_API_KEY
+  provider: openai
+  model: deepseek-web
+  base_url: http://127.0.0.1:8787/v1
+  api_key_env: ""
   max_tokens: 400
 ```
 
