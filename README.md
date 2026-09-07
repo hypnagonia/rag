@@ -1,9 +1,22 @@
 # RAG Context Compressor
 
-A tool for indexing and searching text using hybrid search (BM25 + vector embeddings),
-with MMR deduplication and context packing for LLM consumption. It can hand you the
-context to use elsewhere, or answer the question itself. Runs as a CLI or in-browser
-via WebAssembly.
+**Local-first retrieval-augmented generation in a single Go binary.** Hybrid BM25 +
+vector search over your own files, with context packing and cited answers - no vector
+database, no Python, no server to run.
+
+[![Release](https://img.shields.io/github/v/release/hypnagonia/rag?sort=semver)](https://github.com/hypnagonia/rag/releases)
+[![Go](https://img.shields.io/github/go-mod/go-version/hypnagonia/rag)](go.mod)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+- **Hybrid retrieval** - BM25 and vector embeddings fused with Reciprocal Rank Fusion, each arm independently searchable
+- **Answers with citations** - `rag ask` retrieves and answers in one LLM call, every claim tagged `[file:lines]`
+- **HyDE query expansion** - searches with a hypothetical answer instead of the question, cached so repeats are free
+- **Runs anywhere** - one static binary, a single BoltDB file, or in the browser via WebAssembly
+- **Measured, not guessed** - a built-in ground-truth benchmark reports recall and MRR
+- **Compact index** - packed binary vectors with optional float16 and int8 quantization
+
+Embeddings run locally through [Ollama](https://ollama.ai/); answer generation uses a
+hosted API (DeepSeek or OpenAI).
 
 ## Example: Querying A Song of Ice and Fire (4 books, ~2.8M tokens)
 
@@ -567,4 +580,4 @@ internal/
 
 ## License
 
-MIT
+MIT - see [LICENSE](LICENSE).
